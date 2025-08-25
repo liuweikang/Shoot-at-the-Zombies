@@ -6,14 +6,18 @@ from win32 import win32gui
 import time
 import random
 import os
+import sys
+import argparse
 from pynput import keyboard
 
 class GameBot:
-    def __init__(self, game_title="游戏窗口标题"):
+    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
         self.game_title = game_title
+        self.battle_time = battle_time
+        self.battle_count = battle_count
         self.game_window = None
         self.screenshot_dir = "screenshots"
         self.template_dir = "templates"
@@ -274,7 +278,7 @@ class GameBot:
         
         print("开始自动刷图脚本...")
         print("提示: 按下ESC键可以随时停止脚本")
-        count = 0
+        count = self.battle_count
         
         # timestamp = time.time()
         while self.running:
@@ -322,8 +326,8 @@ class GameBot:
                 if batileTime is None:
                     batileTime = time.time()
                 else:
-                    if time.time() - batileTime > 150:
-                        print("战斗时间超过150秒,退出")
+                    if self.battle_time > 0 and time.time() - batileTime > self.battle_time:
+                        print(f"战斗时间超过{self.battle_time}秒,退出")
                         self.find_stop()
                         self.find_exit()
                 print("战斗时间:", time.time() - batileTime)
@@ -352,7 +356,12 @@ class GameBot:
 if __name__ == "__main__":
     # 创建游戏机器人实例
     # 请替换为你的游戏窗口标题
-    bot = GameBot("向僵尸开炮")
+    parser = argparse.ArgumentParser(description="游戏机器人")
+    parser.add_argument("--battle_time", type=int, default=0, help="战斗时间")
+    parser.add_argument("--battle_count", type=int, default=0, help="战斗次数")
+    
+    args = parser.parse_args()
+    bot = GameBot("向僵尸开炮", battle_time=args.battle_time, battle_count=args.battle_count)
     
     try:
         # 运行主循环
