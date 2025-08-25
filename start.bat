@@ -1,1 +1,1 @@
-python game_bot.py
+python game_bot.py --battle_time=0 --battle_count=0
