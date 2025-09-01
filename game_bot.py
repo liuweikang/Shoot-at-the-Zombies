@@ -11,7 +11,7 @@ import argparse
 from pynput import keyboard
 
 class GameBot:
-    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0):
+    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, skill_sort=""):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
@@ -21,7 +21,9 @@ class GameBot:
         self.game_window = None
         self.screenshot_dir = "screenshots"
         self.template_dir = "templates"
-        
+        self.mode = mode
+        self.skill_sort = skill_sort
+
         # 创建必要的目录
         os.makedirs(self.screenshot_dir, exist_ok=True)
         os.makedirs(self.template_dir, exist_ok=True)
@@ -129,7 +131,7 @@ class GameBot:
         """判断能否发现队伍页面"""
         return self.find_template("team-up.png")
     def find_recruitment(self):
-        while True:
+        while True and self.running:
             """判断能否发现招募页面"""
             team_up = self.find_team_up()
             if not team_up:
@@ -203,13 +205,23 @@ class GameBot:
             time.sleep(0.2)
     def find_skill(self):
         """判断能否发现技能按钮"""
-        skills = ["skill"]
-        for i in range(1, 9):
-            skills.append(f"skill-{i}")
+        # 如果没有提供自定义顺序，则使用默认顺序
+        if self.skill_sort == "":
+            skills = ["skill"]
+            for i in range(1, 11):
+                skills.append(f"skill-{i}")
+        else:
+            # 使用自定义顺序
+            skills = self.skill_sort.split(",")
+        
         for skill in skills:
-            skill = self.find_template(f"{skill}.png")
-            if skill:
-                self.click(*skill)
+            # 确保文件名包含.png扩展名
+            if not skill.endswith('.png'):
+                skill = f"{skill}.png"
+            
+            skill_pos = self.find_template(skill)
+            if skill_pos:
+                self.click(*skill_pos)
                 time.sleep(0.2)
                 return None
         return None
@@ -251,7 +263,16 @@ class GameBot:
         if exit_button:
             self.click(*exit_button)
             time.sleep(0.2)
-
+    def find_card(self):
+        """判断能否发现卡关按钮"""
+        card = self.find_template("card-normal.png")
+        if card:
+            self.click(*card)
+            time.sleep(0.2)
+            card = self.find_template("card-start.png")
+            if card:
+                self.click(*card)
+                time.sleep(0.2)
     def on_hotkey(self, key):
         """快捷键回调函数"""
         try:
@@ -306,7 +327,7 @@ class GameBot:
 
             batileTime = None
             # 是不是在战斗中
-            while True:
+            while True and self.running:
                 battling = self.find_battling()
                 if not battling:
                     break
@@ -331,8 +352,10 @@ class GameBot:
                         self.find_stop()
                         self.find_exit()
                 print("战斗时间:", time.time() - batileTime)
-            # 先找是不是在招募中
-            self.find_recruitment()
+            # 是否刷环球
+            if self.mode == 0:
+                # 先找是不是在招募中
+                self.find_recruitment()
 
             # 先确定位置
             start_button = self.find_start_button()
@@ -341,9 +364,14 @@ class GameBot:
                 self.find_dont_battle_return()
                 self.find_click_continue()
                 continue
-            
-            # 检查当前页面是否在环球页面
-            self.find_im()
+            # 是否刷环球
+            if self.mode == 0:
+                # 检查当前页面是否在环球页面
+                self.find_im()
+            # 是否刷卡关
+            if self.mode == 1:
+                # 检查当前页面是否在卡关页面
+                self.find_card()
             # 点击继续
             self.find_click_continue()
             # 每100秒随机点个位置
@@ -357,11 +385,13 @@ if __name__ == "__main__":
     # 创建游戏机器人实例
     # 请替换为你的游戏窗口标题
     parser = argparse.ArgumentParser(description="游戏机器人")
-    parser.add_argument("--battle_time", type=int, default=0, help="战斗时间")
+    parser.add_argument("--mode", type=int, help="模式 0:打环球(进别人队伍) 1:刷卡关")
     parser.add_argument("--battle_count", type=int, default=0, help="战斗次数")
+    parser.add_argument("--battle_time", type=int, default=0, help="战斗时间")
+    parser.add_argument("--skill_sort", type=str, default="", help="技能顺序")
     
     args = parser.parse_args()
-    bot = GameBot("向僵尸开炮", battle_time=args.battle_time, battle_count=args.battle_count)
+    bot = GameBot("向僵尸开炮", battle_time=args.battle_time, battle_count=args.battle_count, mode=args.mode, skill_sort=args.skill_sort)
     
     try:
         # 运行主循环
