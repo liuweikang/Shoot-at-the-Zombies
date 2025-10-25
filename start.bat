@@ -1,1 +1,1 @@
-python game_bot.py --mode=1 --battle_count=50 --skill_sort="skill,skill-10,skill-1,skill-2,skill-3,skill-4,skill-5,skill-6,skill-7,skill-8,skill-9,skill-11"
+python game_bot.py --mode=2 --battle_count=0
