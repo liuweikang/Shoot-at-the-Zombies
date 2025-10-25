@@ -41,6 +41,29 @@ class GameBot:
             print("未找到游戏窗口")
             return False
 
+    def find_fullscreen_window(self):
+        """查找全屏幕窗口"""
+        # 使用pyautogui获取屏幕尺寸，更简单可靠
+        try:
+            # 获取主屏幕尺寸
+            width, height = pyautogui.size()
+            left, top = 0, 0
+            self.game_window = (left, top, width, height)
+            print(f"全屏幕窗口: {self.game_window}")
+            return True
+        except Exception as e:
+            print(f"获取屏幕尺寸时出错: {e}")
+            # 如果pyautogui失败，尝试使用win32gui的基本方法
+            try:
+                width = win32gui.GetSystemMetrics(0)  # SM_CXSCREEN
+                height = win32gui.GetSystemMetrics(1) # SM_CYSCREEN
+                left, top = 0, 0
+                self.game_window = (left, top, width, height)
+                print(f"使用备用方法获取全屏幕窗口: {self.game_window}")
+                return True
+            except Exception as e2:
+                print(f"备用方法也失败: {e2}")
+                return False
     def take_screenshot(self):
         """截取游戏窗口画面"""
         if not self.game_window:
@@ -273,6 +296,13 @@ class GameBot:
             if card:
                 self.click(*card)
                 time.sleep(0.2)
+    def find_orange_start_game(self):
+        """判断能否发现橘子开始游戏按钮"""
+        orange_start_game = self.find_template("orange-start.png")
+        print(orange_start_game)
+        if orange_start_game:
+            self.click(*orange_start_game)
+            time.sleep(0.2)
     def on_hotkey(self, key):
         """快捷键回调函数"""
         try:
@@ -328,6 +358,14 @@ class GameBot:
             batileTime = None
             # 是不是在战斗中
             while True and self.running:
+
+                if self.mode == 2:
+                    self.find_fullscreen_window()
+                    # 检查开始游戏是否可点击
+                    self.find_orange_start_game()
+                    time.sleep(10)
+                    continue
+
                 battling = self.find_battling()
                 if not battling:
                     break
