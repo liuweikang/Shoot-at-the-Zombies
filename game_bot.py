@@ -223,7 +223,12 @@ class GameBot:
                     time.sleep(0.1)  # 减少等待时间
                 else:
                     print("未找到招募页面")
-    
+            
+    def find_in_huanqiu_team(self):
+        """是否在环球队伍"""
+        huanqiu_team = self.find_template("in-huanqiu-team.png")
+        if huanqiu_team:
+            time.sleep(6)
     def find_home_close(self):
         """判断能否发现关闭按钮"""
         close = self.find_template("home-close.png")
@@ -443,6 +448,9 @@ class GameBot:
             if self.mode == 0:
                 # 先找是不是在招募中
                 self.find_recruitment()
+                # 是否在环球队伍 等6秒
+                self.find_in_huanqiu_team()
+                
 
             # 先确定位置
             start_button = self.find_start_button()
