@@ -1,0 +1,1 @@
+python game_bot.py --mode=0 --battle_time=150
