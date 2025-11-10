@@ -115,6 +115,41 @@ class GameBot:
         # print(f"未找到匹配: {template_path}")
         return None
 
+    def find_all_templates(self, template_name, threshold=0.8):
+        """在游戏窗口中查找所有匹配的模板图像位置"""
+        template_path = os.path.join(self.template_dir, template_name)
+        
+        screenshot = self.take_screenshot()
+        if not screenshot:
+            return []
+        
+        # 转换为OpenCV格式
+        img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+        template = cv2.imread(template_path)
+        
+        if template is None:
+            print(f"无法加载模板: {template_path}")
+            return []
+        
+        # 模板匹配
+        result = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
+        
+        # 获取所有超过阈值的匹配位置
+        locations = np.where(result >= threshold)
+        matches = []
+        
+        # 获取模板尺寸
+        h, w = template.shape[:2]
+        
+        # 处理找到的匹配位置
+        for pt in zip(*locations[::-1]):  # 切换x和y坐标
+            center_x = self.game_window[0] + pt[0] + w // 2
+            center_y = self.game_window[1] + pt[1] + h // 2
+            matches.append((center_x, center_y))
+            print(f"找到匹配: {template_path}, 位置: ({center_x}, {center_y})")
+        
+        return matches
+
     def click(self, x, y, duration=0.2, human_like=True):
         """模拟鼠标点击"""
         if human_like:
@@ -127,6 +162,12 @@ class GameBot:
         pyautogui.moveTo(x, y, duration=duration)
         pyautogui.click()
         print(f"点击位置: ({x}, {y})")
+    
+    def click_fast(self, x, y):
+        """快速点击，不添加随机偏移和移动时间"""
+        pyautogui.moveTo(x, y, duration=0)
+        pyautogui.click()
+        print(f"快速点击位置: ({x}, {y})")
 
     def press_key(self, key, presses=1, interval=0.1, human_like=True):
         """模拟按键"""
@@ -167,15 +208,19 @@ class GameBot:
                 else:
                     break
             self.find_reconnection()
-            for i in range(50):
+            for i in range(20):
                 try:
-                    huanqiu = self.find_huanqiu()
-                    # 点击招募
-                    self.click(*huanqiu)
-                    time.sleep(0.1)
+                    huanqiu_positions = self.find_all_templates("huanqiu.png")
+                    if huanqiu_positions:
+                        # 使用快速点击方法点击所有找到的环球按钮
+                        for pos in huanqiu_positions:
+                            self.click_fast(*pos)
+                    else:
+                        print("未找到环球按钮")
+                        time.sleep(0.1)  # 减少等待时间
                 except:
-                    print("未找到环球按钮")
-                    time.sleep(0.2)
+                    print("查找环球按钮时出错")
+                    time.sleep(0.1)  # 减少等待时间
                 else:
                     print("未找到招募页面")
     
