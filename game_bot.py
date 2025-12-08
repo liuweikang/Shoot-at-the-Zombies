@@ -9,6 +9,9 @@ import os
 import sys
 import argparse
 from pynput import keyboard
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
 
 class GameBot:
     def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, skill_sort=""):
@@ -476,26 +479,150 @@ class GameBot:
                 # self.click(500, 100)
                 # timestamp = time.time()
 
+class GameBotGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("游戏机器人操作界面")
+        self.root.geometry("600x600")
+        self.root.resizable(False, False)
+        
+        self.bot = None
+        self.is_running = False
+        
+        # 创建界面组件
+        self.create_widgets()
+    
+    def create_widgets(self):
+        # 游戏标题
+        ttk.Label(self.root, text="游戏窗口标题:").grid(row=0, column=0, padx=10, pady=5, sticky=tk.W)
+        self.game_title_var = tk.StringVar(value="向僵尸开炮")
+        ttk.Entry(self.root, textvariable=self.game_title_var, width=30).grid(row=0, column=1, padx=10, pady=5)
+        
+        # 模式选择
+        ttk.Label(self.root, text="模式:").grid(row=1, column=0, padx=10, pady=5, sticky=tk.W)
+        self.mode_var = tk.IntVar(value=0)
+        mode_frame = ttk.Frame(self.root)
+        mode_frame.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Radiobutton(mode_frame, text="打环球", variable=self.mode_var, value=0).pack(side=tk.LEFT)
+        ttk.Radiobutton(mode_frame, text="刷卡关", variable=self.mode_var, value=1).pack(side=tk.LEFT)
+        # ttk.Radiobutton(mode_frame, text="全屏模式", variable=self.mode_var, value=2).pack(side=tk.LEFT)
+        
+        # 战斗次数
+        ttk.Label(self.root, text="战斗次数:").grid(row=2, column=0, padx=10, pady=5, sticky=tk.W)
+        self.battle_count_var = tk.IntVar(value=0)
+        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_count_var, width=10).grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="(0表示无限循环)").grid(row=2, column=2, padx=5, pady=5, sticky=tk.W)
+        
+        # 战斗时间
+        ttk.Label(self.root, text="战斗时间(秒):").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
+        self.battle_time_var = tk.IntVar(value=0)
+        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10).grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="(0表示无限制)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
+        
+        # 技能顺序
+        ttk.Label(self.root, text="技能顺序:").grid(row=4, column=0, padx=10, pady=5, sticky=tk.W)
+        self.skill_sort_var = tk.StringVar(value="")
+        ttk.Entry(self.root, textvariable=self.skill_sort_var, width=30).grid(row=4, column=1, padx=10, pady=5, columnspan=2)
+        ttk.Label(self.root, text="(用逗号分隔，如: skill,skill-1)").grid(row=5, column=1, padx=10, pady=5, columnspan=2, sticky=tk.W)
+        
+        # 按钮框架
+        button_frame = ttk.Frame(self.root)
+        button_frame.grid(row=6, column=0, columnspan=3, padx=10, pady=20)
+        
+        # 开始按钮
+        self.start_btn = ttk.Button(button_frame, text="开始", command=self.start_bot, width=15)
+        self.start_btn.pack(side=tk.LEFT, padx=10)
+        
+        # 停止按钮
+        self.stop_btn = ttk.Button(button_frame, text="停止", command=self.stop_bot, width=15, state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, padx=10)
+        
+        # 退出按钮
+        self.quit_btn = ttk.Button(button_frame, text="退出", command=self.quit_app, width=15)
+        self.quit_btn.pack(side=tk.LEFT, padx=10)
+        
+        # 状态标签
+        self.status_var = tk.StringVar(value="就绪")
+        ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(row=7, column=0, columnspan=3, padx=10, pady=10)
+    
+    def start_bot(self):
+        """开始运行游戏机器人"""
+        try:
+            # 获取界面参数
+            game_title = self.game_title_var.get()
+            mode = self.mode_var.get()
+            battle_count = self.battle_count_var.get()
+            battle_time = self.battle_time_var.get()
+            skill_sort = self.skill_sort_var.get()
+            
+            # 验证参数
+            if not game_title:
+                messagebox.showerror("错误", "请输入游戏窗口标题")
+                return
+            
+            # 创建GameBot实例
+            self.bot = GameBot(game_title, battle_time, battle_count, mode, skill_sort)
+            
+            # 更新状态
+            self.status_var.set("运行中...")
+            self.start_btn.config(state=tk.DISABLED)
+            self.stop_btn.config(state=tk.NORMAL)
+            
+            # 创建并启动线程
+            self.bot_thread = threading.Thread(target=self.run_bot, daemon=True)
+            self.bot_thread.start()
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"启动失败: {str(e)}")
+            self.status_var.set("就绪")
+    
+    def run_bot(self):
+        """运行游戏机器人主循环"""
+        try:
+            # 运行主循环，直到达到指定次数或被停止
+            while self.bot and self.bot.running:
+                # 运行一次主循环迭代
+                self.bot.main_loop(iterations=1)
+                # 短暂休眠，避免CPU占用过高
+                time.sleep(0.1)
+        except Exception as e:
+            print(f"运行出错: {str(e)}")
+        finally:
+            # 停止运行
+            self.root.after(0, self.stop_bot)
+    
+    def stop_bot(self):
+        """停止游戏机器人"""
+        if self.bot:
+            self.bot.running = False
+            self.bot = None
+        
+        # 更新状态
+        self.status_var.set("已停止")
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+    
+    def quit_app(self):
+        """退出应用程序"""
+        if self.bot:
+            self.bot.running = False
+        self.root.quit()
+
 if __name__ == "__main__":
-    # 创建游戏机器人实例
-    # 请替换为你的游戏窗口标题
-    parser = argparse.ArgumentParser(description="游戏机器人")
-    parser.add_argument("--mode", type=int, help="模式 0:打环球(进别人队伍) 1:刷卡关")
-    parser.add_argument("--battle_count", type=int, default=0, help="战斗次数")
-    parser.add_argument("--battle_time", type=int, default=0, help="战斗时间")
-    parser.add_argument("--skill_sort", type=str, default="", help="技能顺序")
+    # 创建主窗口
+    root = tk.Tk()
     
-    args = parser.parse_args()
-    bot = GameBot("向僵尸开炮", battle_time=args.battle_time, battle_count=args.battle_count, mode=args.mode, skill_sort=args.skill_sort)
-    
+    # 设置窗口图标（可选）
     try:
-        # 运行主循环
-        # 设置 iterations 参数可以限制刷图次数，例如 iterations=10
-        bot.main_loop()
-    except KeyboardInterrupt:
-        print("脚本被用户中断")
-    finally:
-        print("脚本已退出")
+        root.iconbitmap(default=None)
+    except:
+        pass
+    
+    # 创建GUI实例
+    app = GameBotGUI(root)
+    
+    # 运行主循环
+    root.mainloop()
 
 # 使用说明:
 # 1. 安装必要的依赖: pip install pyautogui opencv-python pillow pynput pywin32
