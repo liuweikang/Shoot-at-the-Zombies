@@ -23,13 +23,20 @@ class GameBot:
         self.battle_count = battle_count
         self.game_window = None
         self.screenshot_dir = "screenshots"
-        self.template_dir = "templates"
+        
+        # 获取templates目录路径（支持PyInstaller打包后的路径）
+        if getattr(sys, 'frozen', False):
+            # 如果是打包后的exe文件
+            self.template_dir = os.path.join(sys._MEIPASS, "templates")
+        else:
+            # 如果是开发环境
+            self.template_dir = "templates"
+        
         self.mode = mode
         self.skill_sort = skill_sort
 
         # 创建必要的目录
         os.makedirs(self.screenshot_dir, exist_ok=True)
-        os.makedirs(self.template_dir, exist_ok=True)
 
     def find_game_window(self):
         """查找并激活游戏窗口"""
