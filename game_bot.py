@@ -8,13 +8,31 @@ import random
 import os
 import sys
 import argparse
+import json
 from pynput import keyboard
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 
+SKILL_LIST = [
+    {"name": "子弹", "template": ["skill.png"]},
+    {"name": "温压弹", "template": ["skill-wyd.png", "skill-wyd-1.png"]},
+    {"name": "干冰弹", "template": ["skill-gbd.png", "skill-gbd-1.png"]},
+    {"name": "冰雹", "template": ["skill-bb.png", "skill-bb-1.png"]},
+    {"name": "车", "template": ["skill-c.png", "skill-c-1.png"]},
+    {"name": "电", "template": ["skill-d.png", "skill-d-1.png"]},
+    {"name": "风刃", "template": ["skill-fr.png", "skill-fr-1.png"]},
+    {"name": "激光", "template": ["skill-jg.png", "skill-jg-1.png"]},
+    {"name": "龙卷风", "template": ["skill-ljf.png", "skill-ljf-1.png"]},
+    {"name": "燃油", "template": ["skill-ry.png", "skill-ry-1.png"]},
+    {"name": "射线", "template": ["skill-sx.png", "skill-sx-1.png"]},
+    {"name": "无人机", "template": ["skill-wrj.png", "skill-wrj-1.png"]},
+    {"name": "跃迁", "template": ["skill-yq.png", "skill-yq-1.png"]},
+    {"name": "空投", "template": ["skill-kt.png", "skill-kt-1.png"]},
+]
+
 class GameBot:
-    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, skill_sort=""):
+    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, priority_skills=None):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
@@ -23,6 +41,7 @@ class GameBot:
         self.battle_count = battle_count
         self.game_window = None
         self.screenshot_dir = "screenshots"
+        self.priority_skills = priority_skills if priority_skills else []
         
         # 获取templates目录路径（支持PyInstaller打包后的路径）
         if getattr(sys, 'frozen', False):
@@ -33,7 +52,6 @@ class GameBot:
             self.template_dir = "templates"
         
         self.mode = mode
-        self.skill_sort = skill_sort
 
         # 创建必要的目录
         os.makedirs(self.screenshot_dir, exist_ok=True)
@@ -253,11 +271,18 @@ class GameBot:
             time.sleep(0.2)
 
     def find_close(self):
-        """判断能否发现关闭按钮"""
-        close = self.find_template("close.png")
-        if close:
-            self.click(*close)
-            time.sleep(0.2)
+        closes = [
+            "close.png",
+            "auto-close.png",
+            "battling-4.png",
+        ]
+        for close in closes:
+            close = self.find_template(close)
+            if close:
+                self.click(*close)
+                time.sleep(0.2)
+                return True
+        return False
     def find_reconnection(self):
         """判断能否发现重新连接按钮"""
         reconnection = self.find_template("reconnection.png")
@@ -292,25 +317,32 @@ class GameBot:
             time.sleep(0.2)
     def find_skill(self):
         """判断能否发现技能按钮"""
-        # 如果没有提供自定义顺序，则使用默认顺序
-        if self.skill_sort == "":
-            skills = ["skill"]
-            for i in range(1, 11):
-                skills.append(f"skill-{i}")
-        else:
-            # 使用自定义顺序
-            skills = self.skill_sort.split(",")
-        
-        for skill in skills:
-            # 确保文件名包含.png扩展名
-            if not skill.endswith('.png'):
-                skill = f"{skill}.png"
-            
-            skill_pos = self.find_template(skill)
-            if skill_pos:
-                self.click(*skill_pos)
-                time.sleep(0.2)
-                return None
+        # 首先检查4个优先技能
+        for priority_skill_templates in self.priority_skills:
+            if priority_skill_templates:
+                # priority_skill_templates 是模板文件名列表
+                for template in priority_skill_templates:
+                    # 确保文件名包含.png扩展名
+                    if not template.endswith('.png'):
+                        template = f"{template}.png"
+                    skill_pos = self.find_template(template)
+                    if skill_pos:
+                        self.click(*skill_pos)
+                        time.sleep(0.2)
+                        return None
+
+        # 如果优先技能未匹配到，从全部技能中按顺序匹配
+        for skill in SKILL_LIST:
+            for template in skill["template"]:
+                # 确保文件名包含.png扩展名
+                if not template.endswith('.png'):
+                    template = f"{template}.png"
+                skill_pos = self.find_template(template)
+                if skill_pos:
+                    self.click(*skill_pos)
+                    time.sleep(0.2)
+                    return None
+
         return None
         
     def find_battling(self):
@@ -487,10 +519,12 @@ class GameBot:
                 # timestamp = time.time()
 
 class GameBotGUI:
+    CONFIG_FILE = "config.json"
+    
     def __init__(self, root):
         self.root = root
         self.root.title("游戏机器人操作界面")
-        self.root.geometry("600x600")
+        self.root.geometry("600x750")
         self.root.resizable(False, False)
         
         self.bot = None
@@ -498,6 +532,41 @@ class GameBotGUI:
         
         # 创建界面组件
         self.create_widgets()
+        
+        # 加载保存的配置
+        self.load_config()
+    
+    def get_skill_template_by_name(self, name):
+        """根据技能名称获取模板文件名列表"""
+        for skill in SKILL_LIST:
+            if skill["name"] == name:
+                return skill["template"]
+        return None
+    
+    def load_config(self):
+        """加载保存的配置"""
+        try:
+            if os.path.exists(self.CONFIG_FILE):
+                with open(self.CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    # 加载优先技能配置
+                    priority_skills = config.get('priority_skills', [])
+                    for i, skill_name in enumerate(priority_skills):
+                        if i < len(self.priority_skill_vars):
+                            self.priority_skill_vars[i].set(skill_name)
+        except Exception as e:
+            print(f"加载配置失败: {e}")
+    
+    def save_config(self):
+        """保存当前配置"""
+        try:
+            config = {
+                'priority_skills': [var.get() for var in self.priority_skill_vars]
+            }
+            with open(self.CONFIG_FILE, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
     
     def create_widgets(self):
         # 游戏标题
@@ -526,15 +595,30 @@ class GameBotGUI:
         ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10).grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
         ttk.Label(self.root, text="(0表示无限制)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
         
-        # 技能顺序
-        ttk.Label(self.root, text="技能顺序:").grid(row=4, column=0, padx=10, pady=5, sticky=tk.W)
-        self.skill_sort_var = tk.StringVar(value="")
-        ttk.Entry(self.root, textvariable=self.skill_sort_var, width=30).grid(row=4, column=1, padx=10, pady=5, columnspan=2)
-        ttk.Label(self.root, text="(用逗号分隔，如: skill,skill-1)").grid(row=5, column=1, padx=10, pady=5, columnspan=2, sticky=tk.W)
+        # 提示标签
+        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=4, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
+        
+        # 优先技能选项（5个）
+        ttk.Label(self.root, text="优先技能(从上到下):").grid(row=5, column=0, padx=10, pady=5, sticky=tk.W)
+        
+        # 获取技能名称列表
+        skill_names = [skill["name"] for skill in SKILL_LIST]
+        
+        # 5个优先技能下拉框
+        self.priority_skill_vars = []
+        self.priority_skill_combos = []
+        for i in range(5):
+            var = tk.StringVar(value="")
+            self.priority_skill_vars.append(var)
+            combo = ttk.Combobox(self.root, textvariable=var, values=[""] + skill_names, width=15, state="readonly")
+            combo.grid(row=5+i, column=1, padx=10, pady=3, sticky=tk.W)
+            combo.bind("<<ComboboxSelected>>", self.on_skill_selected)
+            self.priority_skill_combos.append(combo)
+            ttk.Label(self.root, text=f"优先级{i+1}").grid(row=5+i, column=2, padx=5, pady=3, sticky=tk.W)
         
         # 按钮框架
         button_frame = ttk.Frame(self.root)
-        button_frame.grid(row=6, column=0, columnspan=3, padx=10, pady=20)
+        button_frame.grid(row=10, column=0, columnspan=3, padx=10, pady=20)
         
         # 开始按钮
         self.start_btn = ttk.Button(button_frame, text="开始", command=self.start_bot, width=15)
@@ -550,7 +634,22 @@ class GameBotGUI:
         
         # 状态标签
         self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(row=7, column=0, columnspan=3, padx=10, pady=10)
+        ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(row=11, column=0, columnspan=3, padx=10, pady=10)
+    
+    def on_skill_selected(self, event):
+        """技能选择事件，防止重复选择"""
+        # 获取所有已选择的技能
+        selected_skills = [var.get() for var in self.priority_skill_vars if var.get()]
+        
+        # 获取所有技能名称
+        all_skills = [skill["name"] for skill in SKILL_LIST]
+        
+        # 更新每个下拉框的可选项
+        for i, combo in enumerate(self.priority_skill_combos):
+            current_value = self.priority_skill_vars[i].get()
+            # 可选项：空 + 未被其他下拉框选中的技能
+            available = [""] + [s for s in all_skills if s not in selected_skills or s == current_value]
+            combo['values'] = available
     
     def start_bot(self):
         """开始运行游戏机器人"""
@@ -560,7 +659,18 @@ class GameBotGUI:
             mode = self.mode_var.get()
             battle_count = self.battle_count_var.get()
             battle_time = self.battle_time_var.get()
-            skill_sort = self.skill_sort_var.get()
+            
+            # 获取5个优先技能（将中文名称转换为模板文件名）
+            priority_skills = []
+            for var in self.priority_skill_vars:
+                skill_name = var.get()
+                if skill_name:
+                    template = self.get_skill_template_by_name(skill_name)
+                    if template:
+                        priority_skills.append(template)
+            
+            # 保存配置
+            self.save_config()
             
             # 验证参数
             if not game_title:
@@ -568,7 +678,7 @@ class GameBotGUI:
                 return
             
             # 创建GameBot实例
-            self.bot = GameBot(game_title, battle_time, battle_count, mode, skill_sort)
+            self.bot = GameBot(game_title, battle_time, battle_count, mode, priority_skills)
             
             # 更新状态
             self.status_var.set("运行中...")
