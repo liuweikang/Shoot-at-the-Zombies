@@ -130,6 +130,5 @@ dmypy.json
 
 # 项目特定文件
 screenshots/
-templates/
 *.log
 游戏机器人.spec
