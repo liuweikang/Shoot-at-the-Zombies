@@ -252,7 +252,13 @@ class GameBot:
                         # 使用快速点击方法点击所有找到的环球按钮
                         for pos in huanqiu_positions:
                             self.click_fast(*pos)
-                        self.find_click_leave_button()
+                        leave_button = self.find_leave_button()
+                        if leave_button:
+
+                            if not self.find_in_huanqiu_team():
+                                self.click(*leave_button)
+                                time.sleep(0.1)
+                                self.find_click_sure()
                     else:
                         print("未找到环球按钮")
                         # time.sleep(0.1)  # 减少等待时间
@@ -365,7 +371,7 @@ class GameBot:
         
     def find_battling(self):
         """判断是否在战斗中"""
-        battles = ['battling.png', 'battling-2.png', 'battling-3.png', 'battling-4.png', 'battling-5.png', "auto-close.png", "choose-skill.png"]
+        battles = ['battling.png', 'battling-3.png', 'battling-4.png', 'battling-5.png', "auto-close.png", "choose-skill.png"]
         for battle in battles:
             xy = self.find_template(battle)
             if xy:
@@ -530,16 +536,14 @@ class GameBot:
             if exit:
                 return exit
         return None
-    def find_click_leave_button(self):
+    def find_leave_button(self):
         """判断能否点击离开按钮"""
         leave_icon = ["leave-button.png"]
         for icon in leave_icon:
             leave = self.find_template(icon)
             if leave:
-                self.click(*leave)
-                time.sleep(0.1)
-                self.find_click_sure()
-                break
+                return leave
+        return None
     def find_click_huanqiu_challenge(self):
         """判断能否点击环球挑战按钮"""
         challenge_icon = ["huanqiu-challenge.png"]
