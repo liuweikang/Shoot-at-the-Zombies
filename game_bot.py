@@ -583,6 +583,14 @@ class GameBot:
             if vice_captain:
                 return True
         return False
+    def find_expedition_vice_captain_tag(self):
+        """判断能否发现远征副队长标签按钮"""
+        vice_captain_tag_icon = ["expedition-vice-captain-tag.png"]
+        for icon in vice_captain_tag_icon:
+            vice_captain_tag = self.find_template(icon)
+            if vice_captain_tag:
+                return True
+        return False
     def find_expedition_elite_tag(self):
         """判断能否发现远征精英标签按钮"""
         elite_tag_icon = ["expedition-elite-tag.png"]
@@ -775,11 +783,12 @@ class GameBot:
                     expedition_exit_button = self.find_expedition_exit()
                     if expedition_exit_button:
                         self.find_click_expedition_continue()
+                        self.find_click_close()
                         # 一个人就退出
-                        personnel_count = self.find_expedition_personnels()
-                        # personnel_count = 1
-                        print(f"发现{personnel_count}个远征人员")
-                        if personnel_count >= 2:
+                        vice_captain_tag = self.find_expedition_vice_captain_tag()
+                        # personnel_count = 1")
+                        if vice_captain_tag:
+                            print("发现人走光")
                             self.click(*expedition_exit_button)
                             self.find_click_sure()
                         else:
