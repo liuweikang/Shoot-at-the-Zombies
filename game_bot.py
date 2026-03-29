@@ -32,7 +32,7 @@ SKILL_LIST = [
 ]
 
 class GameBot:
-    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, priority_skills=None):
+    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, priority_skills=None, rich_mode=0, wait_time=60):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
@@ -42,7 +42,9 @@ class GameBot:
         self.game_window = None
         self.screenshot_dir = "screenshots"
         self.priority_skills = priority_skills if priority_skills else []
-        self.expedition_in_team_max_time = time.time() + 120  # 最大等待时间，单位秒 当前时间戳+120秒
+        self.rich_mode = rich_mode
+        self.expedition_in_team_max_time = time.time() + wait_time  # 最大等待时间，单位秒 当前时间戳+wait_time秒
+        self.wait_time = wait_time  # 等待时间，单位秒
         
         # 获取templates目录路径（支持PyInstaller打包后的路径）
         if getattr(sys, 'frozen', False):
@@ -230,12 +232,14 @@ class GameBot:
             team_up = self.find_team_up()
             if not team_up:
 
+                in_recruitment = "recruitment-1.png"
                 recruitments = ["recruitment.png", "recruitment-1.png"]
                 in_recruitment = False
                 for recruitment in recruitments:
                     xy = self.find_template(recruitment)
                     if xy:
-                        self.click(*xy)
+                        if recruitment != in_recruitment:
+                            self.click(*xy)
                         in_recruitment = True
                         break
                 if not in_recruitment:
@@ -248,6 +252,7 @@ class GameBot:
                         # 使用快速点击方法点击所有找到的环球按钮
                         for pos in huanqiu_positions:
                             self.click_fast(*pos)
+                        self.find_click_leave_button()
                     else:
                         print("未找到环球按钮")
                         # time.sleep(0.1)  # 减少等待时间
@@ -261,7 +266,8 @@ class GameBot:
         """是否在环球队伍"""
         huanqiu_team = self.find_template("in-huanqiu-team.png")
         if huanqiu_team:
-            time.sleep(6)
+            return True
+        return False
     def find_click_home_close(self):
         """判断能否点击关闭按钮"""
 
@@ -500,7 +506,7 @@ class GameBot:
         self.find_click_expedition_team_hall()
         self.find_click_expedition_fast_join()
         time.sleep(1)
-        self.expedition_in_team_max_time = time.time() + 120  # 当前时间戳+120秒 120秒后重新点击
+        self.expedition_in_team_max_time = time.time() + self.wait_time  # 当前时间戳+wait_time秒 wait_time秒后重新点击
     def find_click_expedition_ready(self):
         """判断能否点击远征准备按钮"""
         ready_icon = ["expedition-ready.png"]
@@ -524,6 +530,109 @@ class GameBot:
             if exit:
                 return exit
         return None
+    def find_click_leave_button(self):
+        """判断能否点击离开按钮"""
+        leave_icon = ["leave-button.png"]
+        for icon in leave_icon:
+            leave = self.find_template(icon)
+            if leave:
+                self.click(*leave)
+                time.sleep(0.1)
+                self.find_click_sure()
+                break
+    def find_click_huanqiu_challenge(self):
+        """判断能否点击环球挑战按钮"""
+        challenge_icon = ["huanqiu-challenge.png"]
+        for icon in challenge_icon:
+            challenge = self.find_template(icon)
+            if challenge:
+                self.click(*challenge)
+                time.sleep(0.1)
+                break
+    def find_huanqiu_invite(self):
+        """判断能否发现环球邀请按钮"""
+        invite_icon = ["huanqiu-invite.png"]
+        for icon in invite_icon:
+            invite = self.find_template(icon)
+            if invite:
+                return invite
+        return None
+    def find_click_huanqiu_post_recruitment(self):
+        """判断能否点击环球发布招募按钮"""
+        post_recruitment_icon = ["huanqiu-post-recruitmen.png"]
+        for icon in post_recruitment_icon:
+            post_recruitment = self.find_template(icon)
+            if post_recruitment:
+                self.click(*post_recruitment)
+                time.sleep(0.1)
+                break
+    def find_click_start_game_button(self):
+        """判断能否点击开始游戏按钮"""
+        start_game_icon = ["start-game-button.png"]
+        for icon in start_game_icon:
+            start_game = self.find_template(icon)
+            if start_game:
+                self.click(*start_game)
+                time.sleep(0.1)
+                break
+    def find_expedition_vice_captain(self):
+        """判断能否远征副队长按钮"""
+        vice_captain_icon = ["expedition-vice-captain.png"]
+        for icon in vice_captain_icon:
+            vice_captain = self.find_template(icon)
+            if vice_captain:
+                return True
+        return False
+    def find_expedition_elite_tag(self):
+        """判断能否发现远征精英标签按钮"""
+        elite_tag_icon = ["expedition-elite-tag.png"]
+        for icon in elite_tag_icon:
+            elite_tag = self.find_template(icon)
+            if elite_tag:
+                return elite_tag
+        return None
+    def find_click_start_challenge(self):
+        """判断能否点击开始挑战按钮"""
+        start_challenge_icon = ["start-challenge.png"]
+        for icon in start_challenge_icon:
+            start_challenge = self.find_template(icon)
+            if start_challenge:
+                self.click(*start_challenge)
+                time.sleep(0.1)
+                break
+    def find_expedition_health_100s(self):
+        """判断能否发现远征健康值100按钮"""
+        expedition_health_icon = ["expedition-health-100.png"]
+        for icon in expedition_health_icon:
+            expedition_healths = self.find_all_templates(icon)
+            if len(expedition_healths) > 0:
+                return expedition_healths
+        return []
+    def find_click_expedition_continue(self):
+        """判断能否点击远征继续按钮"""
+        continue_icon = ["expedition-continue.png"]
+        for icon in continue_icon:
+            continue_icon = self.find_template(icon)
+            if continue_icon:
+                self.click(*continue_icon)
+                time.sleep(0.1)
+                break
+    def expedition_in_team(self, in_expedition):
+        """判断是否在远征团队中"""
+        if not in_expedition:
+            self.click_expedition_fast_join()
+        else:
+            tickets = self.find_expedition_tickets()
+            # 穷B模式
+            if tickets and self.rich_mode == 1:
+                self.click_expedition_fast_join()
+            else:
+                if self.rich_mode == 0:
+                    vice_captain = self.find_expedition_vice_captain()
+                    if not vice_captain:
+                        self.find_click_start_game_button()
+                self.find_click_expedition_ready()
+                self.find_click_sure()
     def on_hotkey(self, key):
         """快捷键回调函数"""
         try:
@@ -605,13 +714,46 @@ class GameBot:
                         self.find_click_exit()
                 print("战斗时间:", time.time() - batileTime)
             
-            if self.mode in [0, 1]:
-                # 是否刷环球
-                if self.mode == 0:
+            # 是否刷环球
+            if self.mode == 0:
+                # 穷B消费模式
+                if self.rich_mode == 1:
                     # 先找是不是在招募中
                     self.find_click_recruitment()
                     # 是否在环球队伍 等6秒
-                    self.find_in_huanqiu_team()
+                    in_huanqiu_team = self.find_in_huanqiu_team()
+                    if in_huanqiu_team:
+                        time.sleep(6)
+                    # 先确定位置
+                    start_button = self.find_click_start_button()
+                    if not start_button:
+                        # 不打远征
+                        self.find_click_dont_battle_return()
+                        self.find_click_continue()
+                        continue
+                    # 检查当前页面是否在环球页面
+                    self.find_click_im()
+                # 土豪消费模式
+                if self.rich_mode == 0:
+                    in_huanqiu_team = self.find_in_huanqiu_team()
+                    if not in_huanqiu_team:
+                        # 打环球
+                        self.find_click_base()
+                        self.find_click_experience()
+                        self.find_click_huanqiu_challenge()
+                    else:
+                        invite_button = self.find_huanqiu_invite()
+                        if invite_button:
+                            self.click(*invite_button)
+                            time.sleep(0.1)
+                            self.find_click_huanqiu_post_recruitment()
+                            self.find_click_home_close()
+                            time.sleep(1)
+                        else:
+                            self.find_click_start_game_button()
+                            self.find_click_start_challenge()
+            # 是否刷卡关
+            if self.mode == 1:
                 # 先确定位置
                 start_button = self.find_click_start_button()
                 if not start_button:
@@ -619,14 +761,8 @@ class GameBot:
                     self.find_click_dont_battle_return()
                     self.find_click_continue()
                     continue
-                # 是否刷环球
-                if self.mode == 0:
-                    # 检查当前页面是否在环球页面
-                    self.find_click_im()
-                # 是否刷卡关
-                if self.mode == 1:
-                    # 检查当前页面是否在卡关页面
-                    self.find_click_card()
+                # 检查当前页面是否在卡关页面
+                self.find_click_card()
             if self.mode in [2, 3]:
                 # 先找是不是在远征队伍中
                 in_expedition_team = self.find_expedition_team()
@@ -637,34 +773,44 @@ class GameBot:
                     self.find_click_expedition_challenge()
                 else:
                     expedition_exit_button = self.find_expedition_exit()
-                    if expedition_exit_button:    
+                    if expedition_exit_button:
+                        self.find_click_expedition_continue()
                         # 一个人就退出
                         personnel_count = self.find_expedition_personnels()
+                        # personnel_count = 1
                         print(f"发现{personnel_count}个远征人员")
                         if personnel_count >= 2:
                             self.click(*expedition_exit_button)
                             self.find_click_sure()
-                in_tickets = self.find_expedition_tickets()
-                if in_tickets:
-                    print("发现门票按钮,不当大冤种")
-                    self.click_expedition_fast_join()
+                        else:
+                            elite_tag = self.find_expedition_elite_tag()
+                            if elite_tag:
+                                # y轴向下100个像素
+                                elite_tag = (elite_tag[0], elite_tag[1] + 100)
+                                self.click(*elite_tag)
+                                time.sleep(0.1)
+                                self.find_click_start_challenge()
+                            expedition_healths = self.find_expedition_health_100s()
+                            if len(expedition_healths) == 1:
+                                expedition_health = expedition_healths[0]
+                                # y轴向上100个像素
+                                expedition_health = (expedition_health[0], expedition_health[1] - 100)
+                                self.click(*expedition_health)
+                                time.sleep(0.1)
+                                self.find_click_start_challenge()
                 if self.mode == 2:
                     in_normal = self.find_expedition_normal()
-                    if not in_normal:
-                        self.click_expedition_fast_join()
-                    else:
-                        self.find_click_expedition_ready()
-                        self.find_click_sure()
+                    self.expedition_in_team(in_normal)
                 if self.mode == 3:
                     in_difficulty = self.find_expedition_difficulty()
-                    if not in_difficulty:
-                        self.click_expedition_fast_join()
-                    else:
-                        self.find_click_expedition_ready()
-                        self.find_click_sure()
+                    self.expedition_in_team(in_difficulty)
                 if time.time() > self.expedition_in_team_max_time:
                     print("等待时间超过最大时间,重新点击")
                     self.click_expedition_fast_join()
+                else:
+                    remain_time = self.expedition_in_team_max_time - time.time()
+                    remain_time = int(remain_time)
+                    print(f"等待时间剩余{remain_time}秒")
             # 点击继续
             self.find_click_continue()
             # 每100秒随机点个位置
@@ -735,24 +881,36 @@ class GameBotGUI:
         self.mode_var = tk.StringVar(value="环球")
         mode_combo = ttk.Combobox(self.root, textvariable=self.mode_var, values=["环球", "主线", "普通远征", "超级远征"], width=15, state="readonly")
         mode_combo.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W)
+        mode_combo.bind("<<ComboboxSelected>>", self.on_mode_changed)
+        
+        # 消费模式选择（仅环球、普通远征、超级远征显示）
+        self.rich_mode_label = ttk.Label(self.root, text="消费模式:")
+        self.rich_mode_label.grid(row=2, column=0, padx=10, pady=5, sticky=tk.W)
+        self.rich_mode_frame = ttk.Frame(self.root)
+        self.rich_mode_var = tk.IntVar(value=0)
+        ttk.Radiobutton(self.rich_mode_frame, text="我是土豪", variable=self.rich_mode_var, value=0).pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(self.rich_mode_frame, text="我是穷B", variable=self.rich_mode_var, value=1).pack(side=tk.LEFT, padx=5)
+        self.rich_mode_frame.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        # 默认模式是环球，所以默认显示
+        self.on_mode_changed(None)
         
         # 战斗次数
-        ttk.Label(self.root, text="战斗次数:").grid(row=2, column=0, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="战斗次数:").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
         self.battle_count_var = tk.IntVar(value=0)
-        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_count_var, width=10).grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
-        ttk.Label(self.root, text="(0表示无限循环)").grid(row=2, column=2, padx=5, pady=5, sticky=tk.W)
+        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_count_var, width=10).grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="(0表示无限循环)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
         
         # 战斗时间
-        ttk.Label(self.root, text="战斗时间(秒):").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="战斗时间(秒):").grid(row=4, column=0, padx=10, pady=5, sticky=tk.W)
         self.battle_time_var = tk.IntVar(value=0)
-        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10).grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
-        ttk.Label(self.root, text="(0表示无限制)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
+        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10).grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="(0表示无限制)").grid(row=4, column=2, padx=5, pady=5, sticky=tk.W)
         
         # 提示标签
-        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=4, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=5, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
         
         # 优先技能选项（5个）
-        ttk.Label(self.root, text="优先技能(从上到下):").grid(row=5, column=0, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="优先技能(从上到下):").grid(row=6, column=0, padx=10, pady=5, sticky=tk.W)
         
         # 获取技能名称列表
         skill_names = [skill["name"] for skill in SKILL_LIST]
@@ -804,6 +962,17 @@ class GameBotGUI:
             available = [""] + [s for s in all_skills if s not in selected_skills or s == current_value]
             combo['values'] = available
     
+    def on_mode_changed(self, event):
+        """模式选择事件，控制土豪/穷B单选框显示"""
+        mode = self.mode_var.get()
+        # 仅环球、普通远征、超级远征显示土豪/穷B选项
+        if mode in ["环球", "普通远征", "超级远征"]:
+            self.rich_mode_label.grid(row=2, column=0, padx=10, pady=5, sticky=tk.W)
+            self.rich_mode_frame.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        else:
+            self.rich_mode_label.grid_remove()
+            self.rich_mode_frame.grid_remove()
+    
     def start_bot(self):
         """开始运行游戏机器人"""
         try:
@@ -814,6 +983,7 @@ class GameBotGUI:
             mode = mode_map.get(mode_text, 0)
             battle_count = self.battle_count_var.get()
             battle_time = self.battle_time_var.get()
+            rich_mode = self.rich_mode_var.get()
             
             # 获取5个优先技能（将中文名称转换为模板文件名）
             priority_skills = []
@@ -833,7 +1003,7 @@ class GameBotGUI:
                 return
             
             # 创建GameBot实例
-            self.bot = GameBot(game_title, battle_time, battle_count, mode, priority_skills)
+            self.bot = GameBot(game_title, battle_time, battle_count, mode, priority_skills, rich_mode)
             
             # 更新状态
             self.status_var.set("运行中...")
