@@ -15,7 +15,7 @@ from tkinter import ttk, messagebox
 import threading
 
 SKILL_LIST = [
-    {"name": "子弹", "template": ["skill.png"]},
+    {"name": "子弹", "template": ["skill.png", "skill-1.png"]},
     {"name": "温压弹", "template": ["skill-wyd.png", "skill-wyd-1.png"]},
     {"name": "干冰弹", "template": ["skill-gbd.png", "skill-gbd-1.png"]},
     {"name": "冰雹", "template": ["skill-bb.png", "skill-bb-1.png"]},
@@ -70,6 +70,33 @@ class GameBot:
             return True
         else:
             print("未找到游戏窗口")
+            return False
+
+    def resize_game_window(self, width=542, height=1010):
+        """调整游戏窗口大小"""
+        hwnd = win32gui.FindWindow(None, self.game_title)
+        if hwnd:
+            # 获取当前窗口位置
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            # 计算窗口边框和标题栏的大小
+            # 先获取客户区大小
+            client_rect = win32gui.GetClientRect(hwnd)
+            client_width = client_rect[2] - client_rect[0]
+            client_height = client_rect[3] - client_rect[1]
+            # 计算边框和标题栏的总大小
+            border_width = (right - left) - client_width
+            border_height = (bottom - top) - client_height
+            # 计算需要设置的窗口总大小
+            window_width = width + border_width
+            window_height = height + border_height
+            # 设置新的窗口大小
+            win32gui.MoveWindow(hwnd, left, top, window_width, window_height, True)
+            # 更新游戏窗口信息
+            self.game_window = (left, top, width, height)
+            print(f"游戏窗口已调整为: {self.game_window}")
+            return True
+        else:
+            print("未找到游戏窗口，无法调整大小")
             return False
 
     def find_fullscreen_window(self):
@@ -225,24 +252,22 @@ class GameBot:
             
     def find_team_up(self):
         """判断能否发现队伍页面"""
-        return self.find_template("team-up.png")
+        return self.find_template("recruitment-1.png")
     def find_click_recruitment(self):
         while True and self.running:
             """判断能否点击招募页面"""
             team_up = self.find_team_up()
             if not team_up:
-
-                in_recruitment = "recruitment-1.png"
-                recruitments = ["recruitment.png", "recruitment-1.png"]
+                recruitments = ["recruitment.png"]
                 in_recruitment = False
                 for recruitment in recruitments:
                     xy = self.find_template(recruitment)
                     if xy:
-                        if recruitment != in_recruitment:
-                            self.click(*xy)
+                        self.click(*xy)
                         in_recruitment = True
                         break
                 if not in_recruitment:
+                    print("未找到招募页面")
                     break
             self.find_click_reconnection()
             for i in range(20):
@@ -251,14 +276,14 @@ class GameBot:
                     if huanqiu_positions:
                         # 使用快速点击方法点击所有找到的环球按钮
                         for pos in huanqiu_positions:
+                            pos = (pos[0] + 100, pos[1])
                             self.click_fast(*pos)
-                        leave_button = self.find_leave_button()
-                        if leave_button:
-
-                            if not self.find_in_huanqiu_team():
-                                self.click(*leave_button)
-                                time.sleep(0.1)
-                                self.find_click_sure()
+                    leave_button = self.find_leave_button()
+                    if leave_button:
+                        if not self.find_in_huanqiu_team():
+                            self.click(*leave_button)
+                            time.sleep(0.1)
+                            self.find_click_sure()
                     else:
                         print("未找到环球按钮")
                         # time.sleep(0.1)  # 减少等待时间
@@ -887,14 +912,15 @@ class GameBotGUI:
         # 游戏标题
         ttk.Label(self.root, text="游戏窗口标题:").grid(row=0, column=0, padx=10, pady=5, sticky=tk.W)
         self.game_title_var = tk.StringVar(value="向僵尸开炮")
-        ttk.Entry(self.root, textvariable=self.game_title_var, width=30).grid(row=0, column=1, padx=10, pady=5)
+        self.game_title_entry = ttk.Entry(self.root, textvariable=self.game_title_var, width=30)
+        self.game_title_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W)
         
         # 模式选择
         ttk.Label(self.root, text="模式:").grid(row=1, column=0, padx=10, pady=5, sticky=tk.W)
         self.mode_var = tk.StringVar(value="环球")
-        mode_combo = ttk.Combobox(self.root, textvariable=self.mode_var, values=["环球", "主线", "普通远征", "超级远征"], width=15, state="readonly")
-        mode_combo.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W)
-        mode_combo.bind("<<ComboboxSelected>>", self.on_mode_changed)
+        self.mode_combo = ttk.Combobox(self.root, textvariable=self.mode_var, values=["环球", "主线", "普通远征", "超级远征"], width=15, state="readonly")
+        self.mode_combo.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W)
+        self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_changed)
         
         # 消费模式选择（仅环球、普通远征、超级远征显示）
         self.rich_mode_label = ttk.Label(self.root, text="消费模式:")
@@ -910,20 +936,21 @@ class GameBotGUI:
         # 战斗次数
         ttk.Label(self.root, text="战斗次数:").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
         self.battle_count_var = tk.IntVar(value=0)
-        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_count_var, width=10).grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        self.battle_count_spinbox = ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_count_var, width=10)
+        self.battle_count_spinbox.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
         ttk.Label(self.root, text="(0表示无限循环)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
         
         # 战斗时间
         ttk.Label(self.root, text="战斗时间(秒):").grid(row=4, column=0, padx=10, pady=5, sticky=tk.W)
         self.battle_time_var = tk.IntVar(value=0)
-        ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10).grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
+        self.battle_time_spinbox = ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10)
+        self.battle_time_spinbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
         ttk.Label(self.root, text="(0表示无限制)").grid(row=4, column=2, padx=5, pady=5, sticky=tk.W)
-        
-        # 提示标签
-        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=5, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
         
         # 优先技能选项（5个）
         ttk.Label(self.root, text="优先技能(从上到下):").grid(row=6, column=0, padx=10, pady=5, sticky=tk.W)
+
+
         
         # 获取技能名称列表
         skill_names = [skill["name"] for skill in SKILL_LIST]
@@ -952,6 +979,10 @@ class GameBotGUI:
         self.stop_btn = ttk.Button(button_frame, text="停止", command=self.stop_bot, width=15, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=10)
         
+        # 调整窗口大小按钮
+        self.resize_btn = ttk.Button(button_frame, text="调整窗口大小", command=self.resize_window, width=15)
+        self.resize_btn.pack(side=tk.LEFT, padx=10)
+        
         # 退出按钮
         self.quit_btn = ttk.Button(button_frame, text="退出", command=self.quit_app, width=15)
         self.quit_btn.pack(side=tk.LEFT, padx=10)
@@ -959,6 +990,9 @@ class GameBotGUI:
         # 状态标签
         self.status_var = tk.StringVar(value="就绪")
         ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(row=11, column=0, columnspan=3, padx=10, pady=10)
+        
+        # 提示标签
+        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=12, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
     
     def on_skill_selected(self, event):
         """技能选择事件，防止重复选择"""
@@ -1023,6 +1057,17 @@ class GameBotGUI:
             self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.NORMAL)
             
+            # 禁用所有参数控件
+            self.game_title_entry.config(state=tk.DISABLED)
+            self.mode_combo.config(state=tk.DISABLED)
+            for child in self.rich_mode_frame.winfo_children():
+                child.config(state=tk.DISABLED)
+            self.battle_count_spinbox.config(state=tk.DISABLED)
+            self.battle_time_spinbox.config(state=tk.DISABLED)
+            for combo in self.priority_skill_combos:
+                combo.config(state=tk.DISABLED)
+            self.resize_btn.config(state=tk.DISABLED)
+            
             # 创建并启动线程
             self.bot_thread = threading.Thread(target=self.run_bot, daemon=True)
             self.bot_thread.start()
@@ -1056,6 +1101,30 @@ class GameBotGUI:
         self.status_var.set("已停止")
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
+        
+        # 启用所有参数控件
+        self.game_title_entry.config(state=tk.NORMAL)
+        self.mode_combo.config(state=tk.NORMAL)
+        for child in self.rich_mode_frame.winfo_children():
+            child.config(state=tk.NORMAL)
+        self.battle_count_spinbox.config(state=tk.NORMAL)
+        self.battle_time_spinbox.config(state=tk.NORMAL)
+        for combo in self.priority_skill_combos:
+            combo.config(state=tk.NORMAL)
+        self.resize_btn.config(state=tk.NORMAL)
+    
+    def resize_window(self):
+        """调整游戏窗口大小"""
+        try:
+            # 创建临时GameBot实例来调整窗口大小
+            game_title = self.game_title_var.get()
+            temp_bot = GameBot(game_title=game_title)
+            if temp_bot.resize_game_window():
+                self.status_var.set("窗口大小已调整为542*1010")
+            else:
+                self.status_var.set("未找到游戏窗口，无法调整大小")
+        except Exception as e:
+            self.status_var.set(f"调整窗口大小失败: {e}")
     
     def quit_app(self):
         """退出应用程序"""
