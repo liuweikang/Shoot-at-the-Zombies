@@ -757,7 +757,7 @@ class GameBot:
                         invite_button = self.find_huanqiu_invite()
                         if invite_button:
                             self.click(*invite_button)
-                            time.sleep(0.1)
+                            time.sleep(0.2)
                             self.find_click_huanqiu_post_recruitment()
                             self.find_click_home_close()
                             time.sleep(1)
