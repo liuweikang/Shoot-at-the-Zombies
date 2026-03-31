@@ -1,3 +1,5 @@
+import win32api
+import win32con
 from cv2.gapi.streaming import timestamp
 import pyautogui
 import cv2
@@ -222,10 +224,10 @@ class GameBot:
         print(f"点击位置: ({x}, {y})")
     
     def click_fast(self, x, y):
-        """快速点击，不添加随机偏移和移动时间"""
-        pyautogui.moveTo(x, y, duration=0)
-        pyautogui.click()
-        print(f"快速点击位置: ({x}, {y})")
+        """快速点击，使用win32api直接发送鼠标事件"""
+        win32api.SetCursorPos((int(x), int(y)))
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 
     def press_key(self, key, presses=1, interval=0.1, human_like=True):
         """模拟按键"""
@@ -235,6 +237,13 @@ class GameBot:
         
         pyautogui.press(key, presses=presses, interval=interval)
         print(f"按下按键: {key}")
+
+    def find_click_receive(self):
+        """判断能否点击领取按钮"""
+        receive_button = self.find_template("receive.png")
+        if receive_button:
+            self.click(*receive_button)
+            time.sleep(0.1)
 
     def find_click_im(self):
         """判断能否点击环球页面"""
@@ -276,7 +285,7 @@ class GameBot:
                     if huanqiu_positions:
                         # 使用快速点击方法点击所有找到的环球按钮
                         for pos in huanqiu_positions:
-                            pos = (pos[0] + 100, pos[1])
+                            pos = (pos[0] + 150, pos[1])
                             self.click_fast(*pos)
                     leave_button = self.find_leave_button()
                     if leave_button:
@@ -710,6 +719,9 @@ class GameBot:
             if not self.game_window and not self.find_game_window():
                 time.sleep(5)
                 continue
+            # 点击领取
+            self.find_click_receive()
+            
             # 关闭按钮
             self.find_click_home_close()
             
