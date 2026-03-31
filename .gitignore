@@ -132,3 +132,7 @@ dmypy.json
 screenshots/
 *.log
 游戏机器人.spec
+keys/
+templates/
+templates_decrypted/
+generate_keys.py
