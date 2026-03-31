@@ -229,6 +229,14 @@ class GameBot:
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 
+    def click_fast_batch(self, positions):
+        """批量快速点击多个位置，逐个点击确保每个都完成"""
+        for x, y in positions:
+            win32api.SetCursorPos((int(x), int(y)))
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            time.sleep(0.03)
+
     def press_key(self, key, presses=1, interval=0.1, human_like=True):
         """模拟按键"""
         if human_like:
@@ -284,9 +292,12 @@ class GameBot:
                     huanqiu_positions = self.find_all_templates("huanqiu.png")
                     if huanqiu_positions:
                         # 使用快速点击方法点击所有找到的环球按钮
+                        positions = []
                         for pos in huanqiu_positions:
                             pos = (pos[0] + 150, pos[1])
-                            self.click_fast(*pos)
+                            positions.append(pos)
+                        if positions:
+                            self.click_fast_batch(positions)
                     leave_button = self.find_leave_button()
                     if leave_button:
                         if not self.find_in_huanqiu_team():
