@@ -235,7 +235,7 @@ class GameBot:
             win32api.SetCursorPos((int(x), int(y)))
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-            time.sleep(0.03)
+            time.sleep(0.05)
 
     def press_key(self, key, presses=1, interval=0.1, human_like=True):
         """模拟按键"""
@@ -297,12 +297,14 @@ class GameBot:
                             pos = (pos[0] + 150, pos[1])
                             positions.append(pos)
                         if positions:
+                            # 倒序点击
+                            positions.reverse()
                             self.click_fast_batch(positions)
                     leave_button = self.find_leave_button()
                     if leave_button:
                         if not self.find_in_huanqiu_team():
                             self.click(*leave_button)
-                            time.sleep(0.1)
+                            time.sleep(0.05)
                             self.find_click_sure()
                     else:
                         print("未找到环球按钮")
