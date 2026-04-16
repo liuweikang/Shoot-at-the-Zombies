@@ -387,7 +387,9 @@ class GameBot:
         """判断能否点击技能按钮"""
         choose_skill = self.find_template("choose-skill.png")
         if not choose_skill:
-            return None
+            choose_skill = self.find_template("choose-skill-1.png")
+            if not choose_skill:
+                return None
 
         # 首先检查4个优先技能
         for priority_skill_templates in self.priority_skills:
@@ -419,7 +421,7 @@ class GameBot:
         
     def find_battling(self):
         """判断是否在战斗中"""
-        battles = ['battling.png', 'battling-3.png', 'battling-4.png', 'battling-5.png', "auto-close.png", "choose-skill.png"]
+        battles = ['battling.png', 'battling-3.png', 'battling-4.png', 'battling-5.png', "auto-close.png", "choose-skill.png", "choose-skill-1.png"]
         for battle in battles:
             xy = self.find_template(battle)
             if xy:
