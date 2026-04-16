@@ -48,18 +48,10 @@ class GameBot:
         self.expedition_in_team_max_time = time.time() + wait_time  # 最大等待时间，单位秒 当前时间戳+wait_time秒
         self.wait_time = wait_time  # 等待时间，单位秒
         
-        # 解密密钥（从私钥派生，嵌入代码中）
-        # 运行 encrypt_templates_with_private_key.py 后会输出此值
-        self.decryption_key = bytes.fromhex(
-            "b59ebbb43a2585f2800981e1b64b3096ca9911a50235cadadc9dedf6c55249ae"
-        )
-        self.encrypted_template_dir = "templates_encrypted"
-        
         # 获取templates目录路径（支持PyInstaller打包后的路径）
         if getattr(sys, 'frozen', False):
             # 如果是打包后的exe文件
             self.template_dir = os.path.join(sys._MEIPASS, "templates")
-            self.encrypted_template_dir = os.path.join(sys._MEIPASS, "templates_encrypted")
         else:
             # 如果是开发环境
             self.template_dir = "templates"
@@ -152,50 +144,20 @@ class GameBot:
             return filename
         return None
 
-    def load_encrypted_template(self, template_name):
-        """加载并解密模板文件"""
-        encrypted_template_name = f"{os.path.splitext(template_name)[0]}.enc"
-        encrypted_template_path = os.path.join(self.encrypted_template_dir, encrypted_template_name)
-        
-        if os.path.exists(encrypted_template_path) and self.decryption_key:
-            try:
-                import hashlib
-                with open(encrypted_template_path, 'rb') as f:
-                    shape_data = f.read(12)
-                    shape = np.frombuffer(shape_data, dtype=np.int32)
-                    encrypted_bytes = f.read()
-                
-                key = self.decryption_key
-                decrypted_bytes = bytearray()
-                for i, b in enumerate(encrypted_bytes):
-                    key_byte = key[i % len(key)]
-                    decrypted_bytes.append(b ^ key_byte)
-                
-                img = np.frombuffer(decrypted_bytes, dtype=np.uint8).reshape(shape)
-                return img
-            except Exception as e:
-                print(f"解密模板时出错: {e}")
-        
-        # 如果加密模板不存在或解密失败，尝试加载原始模板
-        template_path = os.path.join(self.template_dir, template_name)
-        template = cv2.imread(template_path)
-        if template is None:
-            print(f"无法加载模板: {template_path}")
-        return template
-
     def find_template(self, template_name, threshold=0.8):
         """在游戏窗口中查找模板图像"""
+        template_path = os.path.join(self.template_dir, template_name)
 
-        """在游戏窗口中查找模板图像"""
         screenshot = self.take_screenshot()
         if not screenshot:
             return None
         
         # 转换为OpenCV格式
         img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-        template = self.load_encrypted_template(template_name)
+        template = cv2.imread(template_path)
         
         if template is None:
+            print(f"无法加载模板: {template_path}")
             return None
         
         # 模板匹配
@@ -206,23 +168,28 @@ class GameBot:
             h, w = template.shape[:2]
             center_x = self.game_window[0] + max_loc[0] + w // 2
             center_y = self.game_window[1] + max_loc[1] + h // 2
-            print(f"找到匹配: {template_name}, 位置: ({center_x}, {center_y}), 相似度: {max_val:.2f}")
+            print(f"找到匹配: {template_path}, 位置: ({center_x}, {center_y}), 相似度: {max_val:.2f}")
             return (center_x, center_y)
         
+        # print(f"未找到匹配: {template_path}")
+        return None
         # print(f"未找到匹配: {template_name}")
         return None
 
     def find_all_templates(self, template_name, threshold=0.8):
         """在游戏窗口中查找所有匹配的模板图像位置"""
+        template_path = os.path.join(self.template_dir, template_name)
+        
         screenshot = self.take_screenshot()
         if not screenshot:
             return []
         
         # 转换为OpenCV格式
         img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-        template = self.load_encrypted_template(template_name)
+        template = cv2.imread(template_path)
         
         if template is None:
+            print(f"无法加载模板: {template_path}")
             return []
         
         # 模板匹配
@@ -240,7 +207,7 @@ class GameBot:
             center_x = self.game_window[0] + pt[0] + w // 2
             center_y = self.game_window[1] + pt[1] + h // 2
             matches.append((center_x, center_y))
-            print(f"找到匹配: {template_name}, 位置: ({center_x}, {center_y})")
+            print(f"找到匹配: {template_path}, 位置: ({center_x}, {center_y})")
         
         return matches
 
