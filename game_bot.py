@@ -305,7 +305,7 @@ class GameBot:
                     if leave_button:
                         if not self.find_in_huanqiu_team():
                             self.click(*leave_button)
-                            time.sleep(0.05)
+                            time.sleep(0.03)
                             self.find_click_sure()
                     else:
                         print("未找到环球按钮")
