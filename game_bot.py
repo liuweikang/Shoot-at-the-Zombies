@@ -506,7 +506,7 @@ class GameBot:
             time.sleep(0.1)
     def find_click_expedition_challenge(self):
         """判断能否点击远征挑战按钮"""
-        challenge_icon = ["expedition-challenge.png"]
+        challenge_icon = ["expedition-challenge.png", "expedition-challenge-1.png"]
         for icon in challenge_icon:
             challenge = self.find_template(icon)
             if challenge:
@@ -866,6 +866,8 @@ class GameBot:
                                 self.find_click_start_challenge()
                 if self.mode == 2:
                     in_normal = self.find_expedition_normal()
+                    if not in_normal:
+                        in_normal = not self.find_expedition_difficulty()
                     self.expedition_in_team(in_normal)
                 if self.mode == 3:
                     in_difficulty = self.find_expedition_difficulty()
