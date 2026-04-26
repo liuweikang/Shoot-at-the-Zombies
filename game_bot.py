@@ -17,38 +17,39 @@ from tkinter import ttk, messagebox
 import threading
 
 SKILL_LIST = [
-    {"name": "子弹", "template": ["skill.png", "skill-1.png"]},
+    {"name": "枪械", "template": ["skill.png", "skill-1.png"]},
     {"name": "温压弹", "template": ["skill-wyd.png", "skill-wyd-1.png"]},
     {"name": "干冰弹", "template": ["skill-gbd.png", "skill-gbd-1.png"]},
-    {"name": "冰雹", "template": ["skill-bb.png", "skill-bb-1.png"]},
-    {"name": "车", "template": ["skill-c.png", "skill-c-1.png"]},
-    {"name": "电", "template": ["skill-d.png", "skill-d-1.png"]},
-    {"name": "风刃", "template": ["skill-fr.png", "skill-fr-1.png"]},
-    {"name": "激光", "template": ["skill-jg.png", "skill-jg-1.png"]},
-    {"name": "龙卷风", "template": ["skill-ljf.png", "skill-ljf-1.png"]},
-    {"name": "燃油", "template": ["skill-ry.png", "skill-ry-1.png"]},
-    {"name": "射线", "template": ["skill-sx.png", "skill-sx-1.png"]},
-    {"name": "无人机", "template": ["skill-wrj.png", "skill-wrj-1.png"]},
-    {"name": "跃迁", "template": ["skill-yq.png", "skill-yq-1.png"]},
-    {"name": "空投", "template": ["skill-kt.png", "skill-kt-1.png"]},
+    {"name": "冰雹发生器", "template": ["skill-bb.png", "skill-bb-1.png"]},
+    {"name": "装甲车", "template": ["skill-c.png", "skill-c-1.png"]},
+    {"name": "电磁穿刺", "template": ["skill-d.png", "skill-d-1.png"]},
+    {"name": "压缩气刃", "template": ["skill-fr.png", "skill-fr-1.png"]},
+    {"name": "制导激光", "template": ["skill-jg.png", "skill-jg-1.png"]},
+    {"name": "旋风加农", "template": ["skill-ljf.png", "skill-ljf-1.png"]},
+    {"name": "燃油弹", "template": ["skill-ry.png", "skill-ry-1.png"]},
+    {"name": "高能射线", "template": ["skill-sx.png", "skill-sx-1.png"]},
+    {"name": "无人机冲击", "template": ["skill-wrj.png", "skill-wrj-1.png"]},
+    {"name": "跃迁电子", "template": ["skill-yq.png", "skill-yq-1.png"]},
+    {"name": "空投轰炸", "template": ["skill-kt.png", "skill-kt-1.png"]},
 ]
 
 class GameBot:
-    def __init__(self, game_title="游戏窗口标题", battle_time=0, battle_count=0, mode=0, priority_skills=None, rich_mode=0, wait_time=60):
+    def __init__(self, game_title="游戏窗口标题", battle_time=0, max_battle_count=0, mode=0, priority_skills=None, rich_mode=0, wait_time=60):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
         self.game_title = game_title
         self.battle_time = battle_time
-        self.battle_count = battle_count
+        self.max_battle_count = max_battle_count
         self.game_window = None
         self.screenshot_dir = "screenshots"
         self.priority_skills = priority_skills if priority_skills else []
         self.rich_mode = rich_mode
         self.expedition_in_team_max_time = time.time() + wait_time  # 最大等待时间，单位秒 当前时间戳+wait_time秒
         self.wait_time = wait_time  # 等待时间，单位秒
+        self.battle_count = 0
         
-        # 获取templates目录路径（支持PyInstaller打包后的路径）
+               # 获取templates目录路径（支持PyInstaller打包后的路径）
         if getattr(sys, 'frozen', False):
             # 如果是打包后的exe文件
             self.template_dir = os.path.join(sys._MEIPASS, "templates")
@@ -439,6 +440,7 @@ class GameBot:
         """判断能否点击返回主界面"""
         return_button = self.find_template("return.png")
         if return_button:
+            self.battle_count += 1
             self.click(*return_button)
             time.sleep(0.1)
             
@@ -714,20 +716,19 @@ class GameBot:
         self.hotkey_listener = keyboard.Listener(on_release=self.on_hotkey)
         self.hotkey_listener.start()
 
-    def main_loop(self, iterations=None):
+    def main_loop(self):
         """主循环"""
         # 设置快捷键监听
         self.setup_hotkey()
         
         print("开始自动刷图脚本...")
         print("提示: 按下ESC键可以随时停止脚本")
-        count = self.battle_count
         
         # timestamp = time.time()
         while self.running:
-            # 检查是否达到迭代次数
-            if iterations and count >= iterations:
-                print(f"已完成 {iterations} 次刷图，脚本停止")
+            # 检查是否达到刷图次数
+            if self.max_battle_count > 0 and self.battle_count >= self.max_battle_count:
+                print(f"已完成 {self.battle_count} 次刷图，脚本停止")
                 self.running = False
                 break
             
@@ -965,9 +966,9 @@ class GameBotGUI:
         
         # 战斗次数
         ttk.Label(self.root, text="战斗次数:").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
-        self.battle_count_var = tk.IntVar(value=0)
-        self.battle_count_spinbox = ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_count_var, width=10)
-        self.battle_count_spinbox.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        self.max_battle_count_var = tk.IntVar(value=0)
+        self.max_battle_count_spinbox = ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.max_battle_count_var, width=10)
+        self.max_battle_count_spinbox.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
         ttk.Label(self.root, text="(0表示无限循环)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
         
         # 战斗时间
@@ -1058,7 +1059,7 @@ class GameBotGUI:
             mode_text = self.mode_var.get()
             mode_map = {"环球": 0, "主线": 1, "普通远征": 2, "超级远征": 3}
             mode = mode_map.get(mode_text, 0)
-            battle_count = self.battle_count_var.get()
+            max_battle_count = self.max_battle_count_var.get()
             battle_time = self.battle_time_var.get()
             rich_mode = self.rich_mode_var.get()
             
@@ -1080,7 +1081,7 @@ class GameBotGUI:
                 return
             
             # 创建GameBot实例
-            self.bot = GameBot(game_title, battle_time, battle_count, mode, priority_skills, rich_mode)
+            self.bot = GameBot(game_title, battle_time, max_battle_count, mode, priority_skills, rich_mode)
             
             # 更新状态
             self.status_var.set("运行中...")
@@ -1092,7 +1093,7 @@ class GameBotGUI:
             self.mode_combo.config(state=tk.DISABLED)
             for child in self.rich_mode_frame.winfo_children():
                 child.config(state=tk.DISABLED)
-            self.battle_count_spinbox.config(state=tk.DISABLED)
+            self.max_battle_count_spinbox.config(state=tk.DISABLED)
             self.battle_time_spinbox.config(state=tk.DISABLED)
             for combo in self.priority_skill_combos:
                 combo.config(state=tk.DISABLED)
@@ -1112,7 +1113,7 @@ class GameBotGUI:
             # 运行主循环，直到达到指定次数或被停止
             while self.bot and self.bot.running:
                 # 运行一次主循环迭代
-                self.bot.main_loop(iterations=1)
+                self.bot.main_loop()
                 # 短暂休眠，避免CPU占用过高
                 time.sleep(0.1)
         except Exception as e:
@@ -1137,7 +1138,7 @@ class GameBotGUI:
         self.mode_combo.config(state=tk.NORMAL)
         for child in self.rich_mode_frame.winfo_children():
             child.config(state=tk.NORMAL)
-        self.battle_count_spinbox.config(state=tk.NORMAL)
+        self.max_battle_count_spinbox.config(state=tk.NORMAL)
         self.battle_time_spinbox.config(state=tk.NORMAL)
         for combo in self.priority_skill_combos:
             combo.config(state=tk.NORMAL)
