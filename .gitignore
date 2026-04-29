@@ -135,3 +135,4 @@ screenshots/
 keys/
 templates_decrypted/
 generate_keys.py
+config.json
