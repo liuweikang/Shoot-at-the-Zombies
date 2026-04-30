@@ -40,6 +40,7 @@ class GameBot:
         """初始化游戏机器人"""
         self.game_title = game_title
         self.battle_time = battle_time
+        self.current_battle_time = 0
         self.max_battle_count = max_battle_count
         self.game_window = None
         self.screenshot_dir = "screenshots"
@@ -386,6 +387,7 @@ class GameBot:
             time.sleep(0.1)
             
     def find_click_skill(self):
+        self.find_click_think_tank()
         """判断能否点击技能按钮"""
         choose_skill = self.find_template("choose-skill.png")
         if not choose_skill:
@@ -427,6 +429,8 @@ class GameBot:
         for battle in battles:
             xy = self.find_template(battle)
             if xy:
+                if not self.current_battle_time:
+                    self.current_battle_time = time.time()
                 return xy
         return None
 
@@ -441,6 +445,7 @@ class GameBot:
         """判断能否点击返回主界面"""
         return_button = self.find_template("return.png")
         if return_button:
+            self.current_battle_time = 0
             self.battle_count += 1
             self.click(*return_button)
             time.sleep(0.1)
@@ -690,6 +695,15 @@ class GameBot:
                 self.click(*continue_icon)
                 time.sleep(0.1)
                 break
+    def find_click_think_tank(self):
+        """判断能否点击智库按钮"""
+        think_tank_icon = ["think_tank.png"]
+        for icon in think_tank_icon:
+            think_tank = self.find_template(icon)
+            if think_tank:
+                self.click(*think_tank)
+                time.sleep(0.1)
+                break
     def expedition_in_team(self, in_expedition):
         """判断是否在远征团队中"""
         if not in_expedition:
@@ -761,7 +775,6 @@ class GameBot:
             # 是不是通关了
             self.find_click_return()
 
-            batileTime = None
             # 是不是在战斗中
             while True and self.running:
 
@@ -781,16 +794,14 @@ class GameBot:
                 # 点击返回
                 self.find_click_return()
 
-                if batileTime is None:
-                    batileTime = time.time()
-                else:
-                    if self.battle_time > 0 and time.time() - batileTime > self.battle_time:
-                        print(f"战斗时间超过{self.battle_time}秒,退出")
-                        stop_button = self.find_stop()
-                        if stop_button:
-                            self.click(*stop_button)
-                        self.find_click_exit()
-                print("战斗时间:", time.time() - batileTime)
+                
+                if self.battle_time > 0 and time.time() - self.current_battle_time > self.battle_time:
+                    print(f"战斗时间超过{self.battle_time}秒,退出")
+                    stop_button = self.find_stop()
+                    if stop_button:
+                        self.click(*stop_button)
+                    self.find_click_exit()
+                print("战斗时间:", time.time() - self.current_battle_time)
             
             # 是否刷环球
             if self.mode == 0:
