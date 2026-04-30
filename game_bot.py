@@ -34,7 +34,7 @@ SKILL_LIST = [
 ]
 
 class GameBot:
-    def __init__(self, game_title="游戏窗口标题", battle_time=0, max_battle_count=0, mode=0, priority_skills=None, rich_mode=0, wait_time=60):
+    def __init__(self, game_title="游戏窗口标题", battle_time=0, max_battle_count=0, mode=0, priority_skills=None, rich_mode=0, wait_time=60, quick_exit=False):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
@@ -45,6 +45,7 @@ class GameBot:
         self.screenshot_dir = "screenshots"
         self.priority_skills = priority_skills if priority_skills else []
         self.rich_mode = rich_mode
+        self.quick_exit = quick_exit
         self.expedition_in_team_max_time = time.time() + wait_time  # 最大等待时间，单位秒 当前时间戳+wait_time秒
         self.wait_time = wait_time  # 等待时间，单位秒
         self.battle_count = 0
@@ -302,14 +303,14 @@ class GameBot:
                             # 倒序点击
                             positions.reverse()
                             self.click_fast_batch(positions)
-                    leave_button = self.find_leave_button()
-                    if leave_button:
-                        if not self.find_in_huanqiu_team():
-                            self.click(*leave_button)
-                            time.sleep(0.03)
-                            self.find_click_sure()
                     else:
-                        print("未找到环球按钮")
+                        leave_button = self.find_leave_button()
+                        if leave_button:
+                            if not self.find_in_huanqiu_team():
+                                self.click(*leave_button)
+                                time.sleep(0.04)
+                                self.find_click_sure()
+                        # print("未找到环球按钮")
                         # time.sleep(0.1)  # 减少等待时间
                 except:
                     print("查找环球按钮时出错")
@@ -444,12 +445,12 @@ class GameBot:
             self.click(*return_button)
             time.sleep(0.1)
             
-    def find_click_stop(self):
-        """判断能否点击停止按钮"""
+    def find_stop(self):
+        """找到停止按钮"""
         stop = self.find_template("battling.png")
         if stop:
-            self.click(*stop)
-            time.sleep(0.1)
+            return stop
+        return None
             
     def find_click_exit(self):
         """判断能否点击退出按钮"""
@@ -495,6 +496,14 @@ class GameBot:
         if base:
             self.click(*base)
             time.sleep(0.1)
+    def find_base(self):
+        """判断能否点击基地按钮"""
+        bases_icon = ["base.png", "base-2.png"]
+        for icon in bases_icon:
+            base = self.find_template(icon)
+            if base:
+                return base
+        return None
             
     def find_click_experience(self):
         """判断能否点击历练按钮"""
@@ -776,7 +785,9 @@ class GameBot:
                 else:
                     if self.battle_time > 0 and time.time() - batileTime > self.battle_time:
                         print(f"战斗时间超过{self.battle_time}秒,退出")
-                        self.find_click_stop()
+                        stop_button = self.find_stop()
+                        if stop_button:
+                            self.click(*stop_button)
                         self.find_click_exit()
                 print("战斗时间:", time.time() - batileTime)
             
@@ -832,7 +843,8 @@ class GameBot:
             if self.mode in [2, 3]:
                 # 先找是不是在远征队伍中
                 in_expedition_team = self.find_expedition_team()
-                if not in_expedition_team:
+                base_button = self.find_base()
+                if not in_expedition_team and not base_button:
                     # 打远征
                     self.find_click_base()
                     self.find_click_experience()
@@ -840,6 +852,17 @@ class GameBot:
                 else:
                     expedition_exit_button = self.find_expedition_exit()
                     if expedition_exit_button:
+                        # 是否秒退
+                        if self.quick_exit:
+                            
+                            stop_button = self.find_stop()
+                            if stop_button:
+                                self.click(*stop_button)
+                                self.find_click_exit()
+                            self.click(*expedition_exit_button)
+                            self.find_click_sure()
+                            continue
+                        
                         self.find_click_expedition_continue()
                         self.find_click_close()
                         # 一个人就退出
@@ -961,25 +984,33 @@ class GameBotGUI:
         ttk.Radiobutton(self.rich_mode_frame, text="我是土豪", variable=self.rich_mode_var, value=0).pack(side=tk.LEFT, padx=5)
         ttk.Radiobutton(self.rich_mode_frame, text="我是穷B", variable=self.rich_mode_var, value=1).pack(side=tk.LEFT, padx=5)
         self.rich_mode_frame.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        
+        # 秒退选项（仅普通远征、超级远征显示）
+        self.quick_exit_label = ttk.Label(self.root, text="秒退模式:")
+        self.quick_exit_label.grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
+        self.quick_exit_var = tk.BooleanVar(value=False)
+        self.quick_exit_check = ttk.Checkbutton(self.root, text="开启秒退", variable=self.quick_exit_var)
+        self.quick_exit_check.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        
         # 默认模式是环球，所以默认显示
         self.on_mode_changed(None)
         
         # 战斗次数
-        ttk.Label(self.root, text="战斗次数:").grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="战斗次数:").grid(row=4, column=0, padx=10, pady=5, sticky=tk.W)
         self.max_battle_count_var = tk.IntVar(value=0)
         self.max_battle_count_spinbox = ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.max_battle_count_var, width=10)
-        self.max_battle_count_spinbox.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
-        ttk.Label(self.root, text="(0表示无限循环)").grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
+        self.max_battle_count_spinbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="(0表示无限循环)").grid(row=4, column=2, padx=5, pady=5, sticky=tk.W)
         
         # 战斗时间
-        ttk.Label(self.root, text="战斗时间(秒):").grid(row=4, column=0, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="战斗时间(秒):").grid(row=5, column=0, padx=10, pady=5, sticky=tk.W)
         self.battle_time_var = tk.IntVar(value=0)
         self.battle_time_spinbox = ttk.Spinbox(self.root, from_=0, to=999, textvariable=self.battle_time_var, width=10)
-        self.battle_time_spinbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
-        ttk.Label(self.root, text="(0表示无限制)").grid(row=4, column=2, padx=5, pady=5, sticky=tk.W)
+        self.battle_time_spinbox.grid(row=5, column=1, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="(0表示无限制)").grid(row=5, column=2, padx=5, pady=5, sticky=tk.W)
         
         # 优先技能选项（5个）
-        ttk.Label(self.root, text="优先技能(从上到下):").grid(row=6, column=0, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="优先技能(从上到下):").grid(row=7, column=0, padx=10, pady=5, sticky=tk.W)
 
 
         
@@ -993,14 +1024,14 @@ class GameBotGUI:
             var = tk.StringVar(value="")
             self.priority_skill_vars.append(var)
             combo = ttk.Combobox(self.root, textvariable=var, values=[""] + skill_names, width=15, state="readonly")
-            combo.grid(row=5+i, column=1, padx=10, pady=3, sticky=tk.W)
+            combo.grid(row=6+i, column=1, padx=10, pady=3, sticky=tk.W)
             combo.bind("<<ComboboxSelected>>", self.on_skill_selected)
             self.priority_skill_combos.append(combo)
-            ttk.Label(self.root, text=f"优先级{i+1}").grid(row=5+i, column=2, padx=5, pady=3, sticky=tk.W)
+            ttk.Label(self.root, text=f"优先级{i+1}").grid(row=6+i, column=2, padx=5, pady=3, sticky=tk.W)
         
         # 按钮框架
         button_frame = ttk.Frame(self.root)
-        button_frame.grid(row=10, column=0, columnspan=3, padx=10, pady=20)
+        button_frame.grid(row=11, column=0, columnspan=3, padx=10, pady=20)
         
         # 开始按钮
         self.start_btn = ttk.Button(button_frame, text="开始", command=self.start_bot, width=15)
@@ -1020,10 +1051,10 @@ class GameBotGUI:
         
         # 状态标签
         self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(row=11, column=0, columnspan=3, padx=10, pady=10)
+        ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(row=12, column=0, columnspan=3, padx=10, pady=10)
         
         # 提示标签
-        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=12, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
+        ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(row=13, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
     
     def on_skill_selected(self, event):
         """技能选择事件，防止重复选择"""
@@ -1041,7 +1072,7 @@ class GameBotGUI:
             combo['values'] = available
     
     def on_mode_changed(self, event):
-        """模式选择事件，控制土豪/穷B单选框显示"""
+        """模式选择事件，控制土豪/穷B单选框和秒退选项显示"""
         mode = self.mode_var.get()
         # 仅环球、普通远征、超级远征显示土豪/穷B选项
         if mode in ["环球", "普通远征", "超级远征"]:
@@ -1050,6 +1081,14 @@ class GameBotGUI:
         else:
             self.rich_mode_label.grid_remove()
             self.rich_mode_frame.grid_remove()
+        
+        # 仅普通远征、超级远征显示秒退选项
+        if mode in ["普通远征", "超级远征"]:
+            self.quick_exit_label.grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
+            self.quick_exit_check.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        else:
+            self.quick_exit_label.grid_remove()
+            self.quick_exit_check.grid_remove()
     
     def start_bot(self):
         """开始运行游戏机器人"""
@@ -1062,6 +1101,7 @@ class GameBotGUI:
             max_battle_count = self.max_battle_count_var.get()
             battle_time = self.battle_time_var.get()
             rich_mode = self.rich_mode_var.get()
+            quick_exit = self.quick_exit_var.get()
             
             # 获取5个优先技能（将中文名称转换为模板文件名）
             priority_skills = []
@@ -1081,7 +1121,7 @@ class GameBotGUI:
                 return
             
             # 创建GameBot实例
-            self.bot = GameBot(game_title, battle_time, max_battle_count, mode, priority_skills, rich_mode)
+            self.bot = GameBot(game_title, battle_time, max_battle_count, mode, priority_skills, rich_mode, 60, quick_exit)
             
             # 更新状态
             self.status_var.set("运行中...")
@@ -1093,6 +1133,7 @@ class GameBotGUI:
             self.mode_combo.config(state=tk.DISABLED)
             for child in self.rich_mode_frame.winfo_children():
                 child.config(state=tk.DISABLED)
+            self.quick_exit_check.config(state=tk.DISABLED)
             self.max_battle_count_spinbox.config(state=tk.DISABLED)
             self.battle_time_spinbox.config(state=tk.DISABLED)
             for combo in self.priority_skill_combos:
@@ -1138,6 +1179,7 @@ class GameBotGUI:
         self.mode_combo.config(state=tk.NORMAL)
         for child in self.rich_mode_frame.winfo_children():
             child.config(state=tk.NORMAL)
+        self.quick_exit_check.config(state=tk.NORMAL)
         self.max_battle_count_spinbox.config(state=tk.NORMAL)
         self.battle_time_spinbox.config(state=tk.NORMAL)
         for combo in self.priority_skill_combos:
