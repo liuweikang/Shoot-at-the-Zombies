@@ -702,7 +702,8 @@ class GameBot:
             else:
                 if self.rich_mode == 0:
                     vice_captain = self.find_expedition_vice_captain()
-                    if not vice_captain:
+                    base_button = self.find_base()
+                    if not vice_captain and not base_button:
                         self.find_click_start_game_button()
                 self.find_click_expedition_ready()
                 self.find_click_sure()
@@ -843,8 +844,7 @@ class GameBot:
             if self.mode in [2, 3]:
                 # 先找是不是在远征队伍中
                 in_expedition_team = self.find_expedition_team()
-                base_button = self.find_base()
-                if not in_expedition_team and not base_button:
+                if not in_expedition_team:
                     # 打远征
                     self.find_click_base()
                     self.find_click_experience()
