@@ -915,6 +915,12 @@ class GameBot:
                 # 检查当前页面是否在卡关页面
                 self.find_click_card()
             if self.mode in [2, 3]:
+                
+                # 有可能进入环球队伍
+                in_huanqiu_team = self.find_in_huanqiu_team()
+                if in_huanqiu_team:
+                    self.find_click_dont_battle_return()
+                
                 # 先找是不是在远征队伍中
                 in_expedition_team = self.find_expedition_team()
                 if not in_expedition_team:
