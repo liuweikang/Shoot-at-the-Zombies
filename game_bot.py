@@ -58,11 +58,13 @@ class GameBot:
         self.priority_skills = priority_skills if priority_skills else []
         self.rich_mode = rich_mode
         self.quick_exit = quick_exit
+        self.on_battle_count_changed = None
         self.expedition_in_team_max_time = (
             time.time() + wait_time
         )  # 最大等待时间，单位秒 当前时间戳+wait_time秒
         self.wait_time = wait_time  # 等待时间，单位秒
         self.battle_count = 0
+        self.last_battle_count_time = 0
 
         # 获取templates目录路径（支持PyInstaller打包后的路径）
         if getattr(sys, "frozen", False):
@@ -226,7 +228,7 @@ class GameBot:
             center_x = self.game_window[0] + pt[0] + w // 2
             center_y = self.game_window[1] + pt[1] + h // 2
             matches.append((center_x, center_y))
-            print(f"找到匹配: {template_path}, 位置: ({center_x}, {center_y})")
+            # print(f"找到匹配: {template_path}, 位置: ({center_x}, {center_y})")
 
         return matches
 
@@ -241,7 +243,7 @@ class GameBot:
 
         pyautogui.moveTo(x, y, duration=duration)
         pyautogui.click()
-        print(f"点击位置: ({x}, {y})")
+        # print(f"点击位置: ({x}, {y})")
 
     def click_fast(self, x, y):
         """快速点击，使用win32api直接发送鼠标事件"""
@@ -479,8 +481,16 @@ class GameBot:
         return_button = self.find_template("return.png")
         if return_button:
             self.current_battle_time = 0
-            self.battle_count += 1
-            self.click(*return_button)
+            now = time.time()
+            if now - self.last_battle_count_time >= 20:
+                self.battle_count += 1
+                self.last_battle_count_time = now
+                if self.on_battle_count_changed:
+                    self.on_battle_count_changed(self.battle_count)
+                self.click(*return_button)
+                print(f"战斗次数: {self.battle_count}")
+            else:
+                self.click(*return_button)
             time.sleep(0.1)
 
     def find_stop(self):
@@ -499,6 +509,10 @@ class GameBot:
 
     def find_click_card(self):
         """判断能否点击卡关按钮"""
+        card1 = self.find_template("card-normal-1.png")
+        if card1:
+            self.click(*card1)
+            time.sleep(0.2)
         card = self.find_template("card-normal.png")
         if card:
             self.click(*card)
@@ -511,7 +525,7 @@ class GameBot:
     def find_click_orange_start_game(self):
         """判断能否点击橘子开始游戏按钮"""
         orange_start_game = self.find_template("orange-start.png")
-        print(orange_start_game)
+        # print(orange_start_game)
         if orange_start_game:
             self.click(*orange_start_game)
             time.sleep(0.1)
@@ -841,7 +855,7 @@ class GameBot:
                 battling = self.find_battling()
                 if not battling:
                     break
-                print("正在战斗中")
+                # print("正在战斗中")
                 # 点击技能
                 self.find_click_skill()
                 # 点击继续战斗
@@ -948,7 +962,7 @@ class GameBot:
                         vice_captain_tag = self.find_expedition_vice_captain_tag()
                         # personnel_count = 1")
                         if vice_captain_tag:
-                            print("发现人走光")
+                            # print("发现人走光")
                             self.click(*expedition_exit_button)
                             self.find_click_sure()
                         else:
@@ -1001,7 +1015,7 @@ class GameBotGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("游戏机器人操作界面")
-        self.root.geometry("600x750")
+        self.root.geometry("600x800")
         self.root.resizable(False, False)
 
         self.bot = None
@@ -1046,6 +1060,9 @@ class GameBotGUI:
             print(f"保存配置失败: {e}")
 
     def create_widgets(self):
+        for i in range(16):
+            self.root.grid_rowconfigure(i, minsize=40)
+
         # 游戏标题
         ttk.Label(self.root, text="游戏窗口标题:").grid(
             row=0, column=0, padx=10, pady=5, sticky=tk.W
@@ -1187,12 +1204,18 @@ class GameBotGUI:
         # 状态标签
         self.status_var = tk.StringVar(value="就绪")
         ttk.Label(self.root, textvariable=self.status_var, foreground="green").grid(
-            row=12, column=0, columnspan=3, padx=10, pady=10
+            row=12, column=0, columnspan=3, padx=10, pady=10, sticky=tk.W
+        )
+
+        # 战斗次数标签
+        self.battle_count_var = tk.StringVar(value="战斗次数: 0")
+        ttk.Label(self.root, textvariable=self.battle_count_var, foreground="blue").grid(
+            row=13, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W
         )
 
         # 提示标签
         ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(
-            row=13, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W
+            row=14, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W
         )
 
     def on_skill_selected(self, event):
@@ -1211,6 +1234,10 @@ class GameBotGUI:
                 s for s in all_skills if s not in selected_skills or s == current_value
             ]
             combo["values"] = available
+
+    def _update_battle_count(self, count):
+        """更新战斗次数显示（线程安全）"""
+        self.root.after(0, lambda: self.battle_count_var.set(f"战斗次数: {count}"))
 
     def on_mode_changed(self, event):
         """模式选择事件，控制土豪/穷B单选框和秒退选项显示"""
@@ -1272,9 +1299,11 @@ class GameBotGUI:
                 60,
                 quick_exit,
             )
+            self.bot.on_battle_count_changed = self._update_battle_count
 
             # 更新状态
             self.status_var.set("运行中...")
+            self.battle_count_var.set("战斗次数: 0")
             self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.NORMAL)
 
