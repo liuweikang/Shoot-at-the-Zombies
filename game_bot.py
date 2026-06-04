@@ -59,9 +59,7 @@ class GameBot:
         self.rich_mode = rich_mode
         self.quick_exit = quick_exit
         self.on_battle_count_changed = None
-        self.expedition_in_team_max_time = (
-            time.time() + wait_time
-        )
+        self.expedition_in_team_max_time = time.time() + wait_time
         self.wait_time = wait_time
         self.battle_count = 0
         self.last_battle_count_time = 0
@@ -90,7 +88,7 @@ class GameBot:
 
         loaded_count = 0
         for filename in os.listdir(self.template_dir):
-            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            if filename.lower().endswith((".png", ".jpg", ".jpeg")):
                 template_path = os.path.join(self.template_dir, filename)
                 template = cv2.imread(template_path)
                 if template is not None:
@@ -379,20 +377,24 @@ class GameBot:
 
     def find_click_home_close(self):
         """判断能否点击关闭按钮"""
-        self.click_first_template([
-            "home-close.png",
-            "home-close-1.png",
-            "home-close-2-text.png",
-            "home-close-2.png",
-        ])
+        self.click_first_template(
+            [
+                "home-close.png",
+                "home-close-1.png",
+                "home-close-2-text.png",
+                "home-close-2.png",
+            ]
+        )
 
     def find_click_close(self):
         """判断能否点击关闭按钮"""
-        return self.click_first_template([
-            "close.png",
-            "auto-close.png",
-            "battling-4.png",
-        ])
+        return self.click_first_template(
+            [
+                "close.png",
+                "auto-close.png",
+                "battling-4.png",
+            ]
+        )
 
     def find_click_reconnection(self):
         """判断能否点击重新连接按钮"""
@@ -479,17 +481,21 @@ class GameBot:
         return_button = self.find_template("return.png")
         if return_button:
             self.current_battle_time = 0
-            now = time.time()
-            if now - self.last_battle_count_time >= 20:
-                self.battle_count += 1
-                self.last_battle_count_time = now
-                if self.on_battle_count_changed:
-                    self.on_battle_count_changed(self.battle_count)
-                self.click(*return_button)
-                print(f"战斗次数: {self.battle_count}")
-            else:
-                self.click(*return_button)
+            if self.mode not in [2, 3]:
+                self.battle_count_add()
+
+            self.click(*return_button)
+            print(f"战斗次数: {self.battle_count}")
             time.sleep(0.1)
+
+    def battle_count_add(self):
+        """战斗次数+1"""
+        now = time.time()
+        if now - self.last_battle_count_time >= 5:
+            self.battle_count += 1
+            self.last_battle_count_time = now
+            if self.on_battle_count_changed:
+                self.on_battle_count_changed(self.battle_count)
 
     def find_stop(self):
         """找到停止按钮"""
@@ -549,7 +555,9 @@ class GameBot:
 
     def find_click_expedition_challenge(self):
         """判断能否点击远征挑战按钮"""
-        self.click_first_template(["expedition-challenge.png", "expedition-challenge-1.png"])
+        self.click_first_template(
+            ["expedition-challenge.png", "expedition-challenge-1.png"]
+        )
 
     def find_expedition_difficulty(self):
         """判断能否发现远征困难按钮"""
@@ -793,6 +801,9 @@ class GameBot:
                 if (
                     self.battle_time > 0
                     and time.time() - self.current_battle_time > self.battle_time
+                ) or (
+                    self.mode == 1
+                    and self.quick_exit
                 ):
                     print(f"战斗时间超过{self.battle_time}秒,退出")
                     stop_button = self.find_stop()
@@ -851,12 +862,12 @@ class GameBot:
                 # 检查当前页面是否在卡关页面
                 self.find_click_card()
             if self.mode in [2, 3]:
-                
+
                 # 有可能进入环球队伍
                 in_huanqiu_team = self.find_in_huanqiu_team()
                 if in_huanqiu_team:
                     self.find_click_dont_battle_return()
-                
+
                 # 先找是不是在远征队伍中
                 in_expedition_team = self.find_expedition_team()
                 if not in_expedition_team:
@@ -1023,7 +1034,7 @@ class GameBotGUI:
         ).pack(side=tk.LEFT, padx=5)
         self.rich_mode_frame.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
 
-        # 秒退选项（仅普通远征、超级远征显示）
+        # 秒退选项（仅普通远征、超级远征、主线显示）
         self.quick_exit_label = ttk.Label(self.root, text="秒退模式:")
         self.quick_exit_label.grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
         self.quick_exit_var = tk.BooleanVar(value=False)
@@ -1131,9 +1142,9 @@ class GameBotGUI:
 
         # 战斗次数标签
         self.battle_count_var = tk.StringVar(value="战斗次数: 0")
-        ttk.Label(self.root, textvariable=self.battle_count_var, foreground="blue").grid(
-            row=13, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W
-        )
+        ttk.Label(
+            self.root, textvariable=self.battle_count_var, foreground="blue"
+        ).grid(row=13, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W)
 
         # 提示标签
         ttk.Label(self.root, text="提示: 按ESC键暂停脚本", foreground="blue").grid(
@@ -1172,8 +1183,8 @@ class GameBotGUI:
             self.rich_mode_label.grid_remove()
             self.rich_mode_frame.grid_remove()
 
-        # 仅普通远征、超级远征显示秒退选项
-        if mode in ["普通远征", "超级远征"]:
+        # 仅普通远征、超级远征、主线显示秒退选项
+        if mode in ["普通远征", "超级远征", "主线"]:
             self.quick_exit_label.grid(row=3, column=0, padx=10, pady=5, sticky=tk.W)
             self.quick_exit_check.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
         else:
