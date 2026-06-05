@@ -261,7 +261,7 @@ class GameBot:
 
         pyautogui.moveTo(x, y, duration=duration)
         pyautogui.click()
-        # print(f"点击位置: ({x}, {y})")
+        print(f"点击位置: ({x}, {y})")
 
     def click_fast(self, x, y):
         """快速点击，使用win32api直接发送鼠标事件"""
@@ -504,6 +504,15 @@ class GameBot:
             return stop
         return None
 
+    def force_click_stop(self):
+        """强制点击停止按钮"""
+        (left, top, width, height) = self.game_window
+        stop_left = left + 50
+        stop_top = top + 85
+        stop = (stop_left, stop_top)
+        print(f"强制点击停止按钮: {stop}")
+        self.click(*stop)
+        
     def find_click_exit(self):
         """判断能否点击退出按钮"""
         self.click_template("exit.png")
@@ -806,9 +815,10 @@ class GameBot:
                     and self.quick_exit
                 ):
                     print(f"战斗时间超过{self.battle_time}秒,退出")
-                    stop_button = self.find_stop()
-                    if stop_button:
-                        self.click(*stop_button)
+                    # stop_button = self.find_stop()
+                    # if stop_button:
+                    #     self.click(*stop_button)
+                    self.force_click_stop()
                     self.find_click_exit()
                 print("战斗时间:", time.time() - self.current_battle_time)
 
@@ -881,10 +891,11 @@ class GameBot:
                         # 是否秒退
                         if self.quick_exit:
 
-                            stop_button = self.find_stop()
-                            if stop_button:
-                                self.click(*stop_button)
-                                self.find_click_exit()
+                            # stop_button = self.find_stop()
+                            # if stop_button:
+                            #     self.click(*stop_button)
+                            self.force_click_stop()
+                            self.find_click_exit()
                             self.click(*expedition_exit_button)
                             self.find_click_sure()
                             continue
