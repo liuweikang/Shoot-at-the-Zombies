@@ -412,9 +412,9 @@ class GameBot:
         """判断能否点击确定按钮"""
         self.click_template("sure.png")
 
-    def find_click_battling_continue(self):
+    def find_click_auto_close(self):
         """判断能否点击继续战斗按钮"""
-        self.click_template("battling-continue.png")
+        self.click_template("auto-close.png")
 
     def find_click_skill(self):
         self.find_click_think_tank()
@@ -463,6 +463,7 @@ class GameBot:
             "auto-close.png",
             "choose-skill.png",
             "choose-skill-1.png",
+            "open-skills.png",
         ]
         for battle in battles:
             xy = self.find_template(battle)
@@ -798,7 +799,7 @@ class GameBot:
                 # 点击技能
                 self.find_click_skill()
                 # 点击继续战斗
-                self.find_click_battling_continue()
+                self.find_click_auto_close()
                 # time.sleep(1)
                 # 点击重新连接
                 self.find_click_reconnection()
