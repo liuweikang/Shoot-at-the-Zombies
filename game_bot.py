@@ -1,6 +1,7 @@
 import win32api
 import win32con
-from cv2.gapi.streaming import timestamp
+import win32ui
+import ctypes
 import pyautogui
 import cv2
 import numpy as np
@@ -45,11 +46,15 @@ class GameBot:
         rich_mode=0,
         wait_time=60,
         quick_exit=False,
+        background_mode=True,
     ):
         self.running = True
         self.hotkey_listener = None
         """初始化游戏机器人"""
         self.game_title = game_title
+        # 后台模式：截图用PrintWindow、点击用PostMessage，不占用真实鼠标键盘
+        self.background_mode = background_mode
+        self.hwnd = None
         self.battle_time = battle_time
         self.current_battle_time = 0
         self.max_battle_count = max_battle_count
@@ -97,11 +102,159 @@ class GameBot:
 
         print(f"模板预加载完成: {loaded_count} 个模板已加载到内存")
 
+    # ==================== 后台模式基础设施 ====================
+
+    def _get_hwnd(self):
+        """获取并缓存游戏窗口句柄"""
+        if self.hwnd and win32gui.IsWindow(self.hwnd):
+            return self.hwnd
+        self.hwnd = win32gui.FindWindow(None, self.game_title)
+        return self.hwnd
+
+    def _post_mouse(self, x, y, msg, wparam):
+        """向游戏窗口客户区发送鼠标消息（屏幕坐标 -> 客户区坐标）"""
+        hwnd = self._get_hwnd()
+        if not hwnd:
+            return
+        client_x, client_y = win32gui.ScreenToClient(hwnd, (int(x), int(y)))
+        # 手动打包lparam（部分pywin32版本没有MAKELPARAM）
+        lparam = (client_y & 0xFFFF) << 16 | (client_x & 0xFFFF)
+        win32gui.PostMessage(hwnd, msg, wparam, lparam)
+
+    def _post_click(self, x, y, press_delay=0.05):
+        """后台点击：发送鼠标按下/抬起消息，不移动真实鼠标"""
+        self._post_mouse(x, y, win32con.WM_MOUSEMOVE, 0)
+        time.sleep(0.02)
+        self._post_mouse(x, y, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON)
+        time.sleep(press_delay)
+        self._post_mouse(x, y, win32con.WM_LBUTTONUP, 0)
+
+    def _post_drag(self, x1, y1, x2, y2, duration=0.3):
+        """后台拖动：分步发送鼠标消息模拟滑动（减速收尾，松开后不触发惯性滚动）"""
+        steps = 12
+        delay = max(0.01, duration / steps)
+        self._post_mouse(x1, y1, win32con.WM_MOUSEMOVE, 0)
+        time.sleep(0.05)
+        self._post_mouse(x1, y1, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON)
+        time.sleep(0.05)
+        # ease-out：先快后慢，接近终点时速度趋近0
+        for i in range(1, steps + 1):
+            t = 1 - (1 - i / steps) ** 2
+            cur_x = x1 + (x2 - x1) * t
+            cur_y = y1 + (y2 - y1) * t
+            self._post_mouse(cur_x, cur_y, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON)
+            time.sleep(delay)
+        # 在终点按住不动片刻，让速度彻底归零后再松开，避免页面继续滑动
+        for _ in range(3):
+            self._post_mouse(x2, y2, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON)
+            time.sleep(0.05)
+        self._post_mouse(x2, y2, win32con.WM_LBUTTONUP, 0)
+
+    def _post_key(self, key, presses=1, interval=0.1):
+        """后台按键：向窗口发送键盘消息"""
+        hwnd = self._get_hwnd()
+        if not hwnd:
+            return
+
+        # 键名 -> 虚拟键码映射
+        key_map = {
+            "esc": win32con.VK_ESCAPE,
+            "enter": win32con.VK_RETURN,
+            "return": win32con.VK_RETURN,
+            "space": win32con.VK_SPACE,
+            "backspace": win32con.VK_BACK,
+            "delete": win32con.VK_DELETE,
+            "del": win32con.VK_DELETE,
+            "tab": win32con.VK_TAB,
+            "up": win32con.VK_UP,
+            "down": win32con.VK_DOWN,
+            "left": win32con.VK_LEFT,
+            "right": win32con.VK_RIGHT,
+        }
+        vk = key_map.get(key.lower())
+        if vk is None and len(key) == 1:
+            vk = ord(key.upper())
+
+        if vk is None:
+            # 无法映射的键回退前台模式
+            print(f"按键 {key} 无法后台发送，使用前台模式")
+            pyautogui.press(key, presses=presses, interval=interval)
+            return
+
+        lparam_down = 1 | (win32api.MapVirtualKey(vk, 0) << 16)
+        lparam_up = lparam_down | (1 << 30) | (1 << 31)
+        for _ in range(presses):
+            win32gui.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, lparam_down)
+            win32gui.PostMessage(hwnd, win32con.WM_CHAR, vk, lparam_down)
+            time.sleep(max(0.05, interval))
+            win32gui.PostMessage(hwnd, win32con.WM_KEYUP, vk, lparam_up)
+            print(f"后台按下按键: {key}")
+
+    def _capture_window(self):
+        """后台截图：PrintWindow抓取窗口内容（窗口可被遮挡，不能最小化）"""
+        hwnd = self._get_hwnd()
+        if not hwnd:
+            return None
+
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        win_w, win_h = right - left, bottom - top
+        if win_w <= 0 or win_h <= 0:
+            return None
+
+        hwnd_dc = win32gui.GetWindowDC(hwnd)
+        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+        save_dc = mfc_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(mfc_dc, win_w, win_h)
+        save_dc.SelectObject(bitmap)
+
+        # PW_RENDERFULLCONTENT(2)对Chromium/DirectX渲染的窗口有效，失败则回退标准模式
+        if not ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 2):
+            ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 0)
+
+        bmp_info = bitmap.GetInfo()
+        # 必须传True才返回bytes，不传返回tuple会导致np.frombuffer报错
+        bmp_str = bitmap.GetBitmapBits(True)
+        img = np.frombuffer(bmp_str, dtype=np.uint8).reshape(
+            bmp_info["bmHeight"], bmp_info["bmWidth"], 4
+        )
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        win32gui.DeleteObject(bitmap.GetHandle())
+        save_dc.DeleteDC()
+        mfc_dc.DeleteDC()
+        win32gui.ReleaseDC(hwnd, hwnd_dc)
+
+        # 裁剪出客户区，保证截图左上角与self.game_window坐标一致
+        client_rect = win32gui.GetClientRect(hwnd)
+        client_origin = win32gui.ClientToScreen(hwnd, (0, 0))
+        client_w, client_h = client_rect[2], client_rect[3]
+        off_x = client_origin[0] - left
+        off_y = client_origin[1] - top
+
+        # DPI缩放时位图像素与窗口逻辑尺寸不一致，按比例换算裁剪区域
+        scale_x = bmp_info["bmWidth"] / win_w
+        scale_y = bmp_info["bmHeight"] / win_h
+        x0 = int(off_x * scale_x)
+        y0 = int(off_y * scale_y)
+        x1 = int((off_x + client_w) * scale_x)
+        y1 = int((off_y + client_h) * scale_y)
+        img = img[max(0, y0):y1, max(0, x0):x1]
+
+        # 统一缩放到客户区逻辑尺寸，保证模板匹配坐标系一致
+        if img.shape[1] != client_w or img.shape[0] != client_h:
+            img = cv2.resize(img, (client_w, client_h))
+
+        # 刷新窗口位置（窗口被拖动后依然有效）
+        self.game_window = (client_origin[0], client_origin[1], client_w, client_h)
+        return img
+
     def find_game_window(self):
-        """查找并激活游戏窗口"""
-        hwnd = win32gui.FindWindow(None, self.game_title)
+        """查找游戏窗口（后台模式下不抢占前台）"""
+        hwnd = self._get_hwnd()
         if hwnd:
-            win32gui.SetForegroundWindow(hwnd)
+            if not self.background_mode:
+                win32gui.SetForegroundWindow(hwnd)
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
             self.game_window = (left, top, right - left, bottom - top)
             print(f"找到游戏窗口: {self.game_window}")
@@ -173,8 +326,16 @@ class GameBot:
             if not self.find_game_window():
                 return None
 
-        screenshot = pyautogui.screenshot(region=self.game_window)
-        self._screenshot_bgr = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+        if self.background_mode and self._get_hwnd():
+            # 后台模式：PrintWindow截图，窗口可被遮挡
+            img = self._capture_window()
+        else:
+            screenshot = pyautogui.screenshot(region=self.game_window)
+            img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+
+        if img is None:
+            return None
+        self._screenshot_bgr = img
         self._screenshot_time = now
         return self._screenshot_bgr
 
@@ -256,15 +417,23 @@ class GameBot:
             # 添加随机偏移，模拟人类点击
             x += random.randint(-5, 5)
             y += random.randint(-5, 5)
-            duration += random.uniform(-0.1, 0.1)
-            duration = max(0.1, duration)
 
+        if self.background_mode and self._get_hwnd():
+            # 后台模式：发送鼠标消息，不占用真实鼠标
+            self._post_click(x, y)
+            return
+
+        duration += random.uniform(-0.1, 0.1)
+        duration = max(0.1, duration)
         pyautogui.moveTo(x, y, duration=duration)
         pyautogui.click()
         # print(f"点击位置: ({x}, {y})")
 
     def click_fast(self, x, y):
-        """快速点击，使用win32api直接发送鼠标事件"""
+        """快速点击（后台模式发送消息，前台模式直接发送鼠标事件）"""
+        if self.background_mode and self._get_hwnd():
+            self._post_click(x, y, press_delay=0.02)
+            return
         win32api.SetCursorPos((int(x), int(y)))
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
@@ -272,16 +441,43 @@ class GameBot:
     def click_fast_batch(self, positions):
         """批量快速点击多个位置，逐个点击确保每个都完成"""
         for x, y in positions:
-            win32api.SetCursorPos((int(x), int(y)))
-            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            self.click_fast(x, y)
             time.sleep(0.05)
+
+    def swipe_up(self, distance=200, duration=0.3):
+        """在游戏窗口中间位置按住鼠标向上滑动，页面上划指定像素"""
+        if not self.game_window:
+            if not self.find_game_window():
+                return
+        left, top, width, height = self.game_window
+        center_x = left + width // 2
+        start_y = top + height // 2
+        end_y = start_y - distance
+
+        if self.background_mode and self._get_hwnd():
+            # 后台模式：发送拖动消息
+            self._post_drag(center_x, start_y, center_x, end_y, duration)
+            time.sleep(1.5)
+            return
+
+        pyautogui.moveTo(center_x, start_y, duration=0.1)
+        pyautogui.mouseDown()
+        # ease-out减速收尾，终点停顿后再松开，避免页面惯性滑动
+        pyautogui.moveTo(center_x, end_y, duration=duration, tween=pyautogui.easeOutQuad)
+        time.sleep(0.15)
+        pyautogui.mouseUp()
+        time.sleep(1.5)
 
     def press_key(self, key, presses=1, interval=0.1, human_like=True):
         """模拟按键"""
         if human_like:
             interval += random.uniform(-0.05, 0.05)
             interval = max(0.05, interval)
+
+        if self.background_mode and self._get_hwnd():
+            # 后台模式：向窗口发送键盘消息
+            self._post_key(key, presses, interval)
+            return
 
         pyautogui.press(key, presses=presses, interval=interval)
         print(f"按下按键: {key}")
@@ -896,6 +1092,8 @@ class GameBot:
                     # 打远征
                     self.find_click_base()
                     self.find_click_experience()
+                    # 页面上划200px露出远征挑战按钮
+                    self.swipe_up(200)
                     self.find_click_expedition_challenge()
                 else:
                     expedition_exit_button = self.find_expedition_exit()
@@ -1049,6 +1247,9 @@ class GameBotGUI:
                     # 加载秒退模式
                     quick_exit = config.get("quick_exit", False)
                     self.quick_exit_var.set(quick_exit)
+                    # 加载后台模式
+                    background_mode = config.get("background_mode", True)
+                    self.background_mode_var.set(background_mode)
                     # 加载战斗次数
                     max_battle_count = config.get("max_battle_count", 0)
                     self.max_battle_count_var.set(max_battle_count)
@@ -1073,6 +1274,7 @@ class GameBotGUI:
                 "mode": self.mode_var.get(),
                 "rich_mode": self.rich_mode_var.get(),
                 "quick_exit": self.quick_exit_var.get(),
+                "background_mode": self.background_mode_var.get(),
                 "max_battle_count": self.max_battle_count_var.get(),
                 "battle_time": self.battle_time_var.get(),
                 "priority_skills": [var.get() for var in self.priority_skill_vars]
@@ -1132,6 +1334,15 @@ class GameBotGUI:
             self.root, text="开启秒退", variable=self.quick_exit_var
         )
         self.quick_exit_check.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+
+        # 后台模式（不占用鼠标键盘，游戏窗口不能最小化）
+        self.background_mode_var = tk.BooleanVar(value=True)
+        self.background_mode_check = ttk.Checkbutton(
+            self.root,
+            text="后台运行（不占用鼠标键盘）",
+            variable=self.background_mode_var,
+        )
+        self.background_mode_check.grid(row=3, column=2, padx=10, pady=5, sticky=tk.W)
 
         # 默认模式是环球，所以默认显示
         self.on_mode_changed(None)
@@ -1336,6 +1547,7 @@ class GameBotGUI:
                 rich_mode,
                 60,
                 quick_exit,
+                self.background_mode_var.get(),
             )
             self.bot.on_battle_count_changed = self._update_battle_count
 
@@ -1351,6 +1563,7 @@ class GameBotGUI:
             for child in self.rich_mode_frame.winfo_children():
                 child.config(state=tk.DISABLED)
             self.quick_exit_check.config(state=tk.DISABLED)
+            self.background_mode_check.config(state=tk.DISABLED)
             self.max_battle_count_spinbox.config(state=tk.DISABLED)
             self.battle_time_spinbox.config(state=tk.DISABLED)
             for combo in self.priority_skill_combos:
@@ -1397,6 +1610,7 @@ class GameBotGUI:
         for child in self.rich_mode_frame.winfo_children():
             child.config(state=tk.NORMAL)
         self.quick_exit_check.config(state=tk.NORMAL)
+        self.background_mode_check.config(state=tk.NORMAL)
         self.max_battle_count_spinbox.config(state=tk.NORMAL)
         self.battle_time_spinbox.config(state=tk.NORMAL)
         for combo in self.priority_skill_combos:
