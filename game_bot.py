@@ -1,6 +1,7 @@
 import win32api
 import win32con
 import win32ui
+import win32process
 import ctypes
 import pyautogui
 import cv2
@@ -11,6 +12,7 @@ import random
 import os
 import sys
 import argparse
+import atexit
 import json
 from pynput import keyboard
 import tkinter as tk
@@ -68,6 +70,17 @@ class GameBot:
         self.wait_time = wait_time
         self.battle_count = 0
         self.last_battle_count_time = 0
+
+        # 前台压制：记录用户最近使用的前台窗口，游戏抢前台时立即压回
+        self._last_foreground = None
+        self._suppress_thread = None
+        self._noactivate_hwnd = None
+        self._orig_exstyle = None
+        # 窗口隐藏：把游戏窗口移到屏幕外，被抢前台也完全不可见
+        self._hidden_hwnd = None
+        self._hidden_orig_pos = None
+        # 进程退出时兜底恢复游戏窗口（防止异常退出后窗口留在屏幕外）
+        atexit.register(self._restore_window_state)
 
         if getattr(sys, "frozen", False):
             self.template_dir = os.path.join(sys._MEIPASS, "templates")
@@ -189,6 +202,191 @@ class GameBot:
             time.sleep(max(0.05, interval))
             win32gui.PostMessage(hwnd, win32con.WM_KEYUP, vk, lparam_up)
             print(f"后台按下按键: {key}")
+
+    def _restore_foreground(self, target_hwnd):
+        """把前台还给指定窗口（AttachThreadInput绕过前台锁定限制）"""
+        if not target_hwnd or not win32gui.IsWindow(target_hwnd) or win32gui.IsIconic(target_hwnd):
+            return
+        try:
+            cur_thread = win32api.GetCurrentThreadId()
+            fg = win32gui.GetForegroundWindow()
+            threads = set()
+            for hwnd in (fg, target_hwnd):
+                if hwnd:
+                    tid, _ = win32process.GetWindowThreadProcessId(hwnd)
+                    if tid and tid != cur_thread:
+                        threads.add(tid)
+            for tid in threads:
+                win32api.AttachThreadInput(cur_thread, tid, True)
+            try:
+                win32gui.SetForegroundWindow(target_hwnd)
+            finally:
+                for tid in threads:
+                    win32api.AttachThreadInput(cur_thread, tid, False)
+        except Exception:
+            pass
+
+    def _ensure_noactivate(self):
+        """给游戏窗口加WS_EX_NOACTIVATE样式，从根源上禁止它激活自己置顶
+        （微信调用SetForegroundWindow会直接失败，不会闪现窗口；游戏窗口关闭重开后自动重新应用）"""
+        hwnd = self._get_hwnd()
+        if not hwnd or hwnd == self._noactivate_hwnd:
+            return
+        try:
+            exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+            # WS_EX_APPWINDOW保证加了防激活样式后任务栏图标仍然显示
+            win32gui.SetWindowLong(
+                hwnd,
+                win32con.GWL_EXSTYLE,
+                exstyle | win32con.WS_EX_NOACTIVATE | win32con.WS_EX_APPWINDOW,
+            )
+            self._noactivate_hwnd = hwnd
+            self._orig_exstyle = exstyle
+            print("已为游戏窗口启用防激活(WS_EX_NOACTIVATE)，它将无法再抢前台")
+        except Exception as e:
+            print(f"设置防激活样式失败: {e}")
+
+    def _remove_noactivate(self):
+        """脚本停止时恢复游戏窗口原始样式，方便用户手动操作游戏"""
+        hwnd = self._noactivate_hwnd
+        if not hwnd:
+            return
+        try:
+            if win32gui.IsWindow(hwnd):
+                win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, self._orig_exstyle)
+            print("已恢复游戏窗口原始样式")
+        except Exception:
+            pass
+        finally:
+            self._noactivate_hwnd = None
+            self._orig_exstyle = None
+
+    def _is_above_foreground(self, hwnd, fg):
+        """判断游戏窗口是否叠在当前前台窗口之上（未激活但被单独置顶的情况）"""
+        if not fg or fg == hwnd:
+            return False
+        h = win32gui.GetTopWindow(None)
+        while h:
+            if h == hwnd:
+                return True
+            if h == fg:
+                return False
+            h = win32gui.GetWindow(h, win32con.GW_HWNDNEXT)
+        return False
+
+    def _push_game_down(self, hwnd, restore_focus):
+        """把游戏窗口压回窗口堆叠底部"""
+        # 鼠标悬停在游戏窗口上：可能是用户主动查看游戏，不压制
+        try:
+            mx, my = win32gui.GetCursorPos()
+            l, t, r, b = win32gui.GetWindowRect(hwnd)
+            if l <= mx <= r and t <= my <= b:
+                return
+        except Exception:
+            return
+        flags = win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+        try:
+            win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+            win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, flags)
+            if restore_focus:
+                self._restore_foreground(self._last_foreground)
+            print("检测到游戏窗口抢前台，已压回后台")
+        except Exception:
+            pass
+
+    def _keep_game_background(self):
+        """兜底监测：万一游戏窗口仍抢到前台或被单独置顶，立刻压回"""
+        hwnd = self._get_hwnd()
+        if not hwnd:
+            return
+        fg = win32gui.GetForegroundWindow()
+        if fg == hwnd:
+            # 抢到前台：压回底部并归还焦点
+            self._push_game_down(hwnd, restore_focus=True)
+        else:
+            if fg:
+                # 记录用户当前正在使用的窗口，供抢前台时归还焦点
+                self._last_foreground = fg
+            if self._is_above_foreground(hwnd, fg):
+                # 仅置顶未激活：压回底部即可，焦点没丢
+                self._push_game_down(hwnd, restore_focus=False)
+
+    def _ensure_hidden(self):
+        """把游戏窗口移到屏幕外：即使被微信强行激活也完全不可见
+        （PrintWindow截图和PostMessage点击都不受窗口位置影响）"""
+        hwnd = self._get_hwnd()
+        if not hwnd:
+            return
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            vx = win32api.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN 虚拟屏幕左边界
+            vy = win32api.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+            vw = win32api.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
+            vh = win32api.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
+            # 已完全在所有显示器之外（含最小化时的-32000坐标）：无需处理
+            if right <= vx or bottom <= vy or left >= vx + vw or top >= vy + vh:
+                self._hidden_hwnd = hwnd
+                return
+            # 记录当前屏幕内位置，停止脚本时移回来
+            self._hidden_orig_pos = (left, top)
+            width = right - left
+            flags = win32con.SWP_NOSIZE | win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+            # 放到虚拟屏幕左边界再往左50px，保证任何显示器都看不到
+            win32gui.SetWindowPos(hwnd, 0, vx - width - 50, vy, 0, 0, flags)
+            self._hidden_hwnd = hwnd
+            print("已将游戏窗口移到屏幕外隐藏（停止脚本后自动移回原位置）")
+        except Exception as e:
+            print(f"隐藏游戏窗口失败: {e}")
+
+    def _restore_window_state(self):
+        """脚本停止/进程退出：把游戏窗口移回原位置并恢复原始样式"""
+        hwnd = self._hidden_hwnd
+        if hwnd and self._hidden_orig_pos and win32gui.IsWindow(hwnd):
+            try:
+                flags = (
+                    win32con.SWP_NOSIZE | win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+                )
+                win32gui.SetWindowPos(
+                    hwnd,
+                    0,
+                    self._hidden_orig_pos[0],
+                    self._hidden_orig_pos[1],
+                    0,
+                    0,
+                    flags,
+                )
+                print("游戏窗口已移回屏幕")
+            except Exception:
+                pass
+        self._hidden_hwnd = None
+        self._hidden_orig_pos = None
+        self._remove_noactivate()
+
+    def _suppress_loop(self):
+        """压制线程：隐藏窗口+防激活+焦点监测，游戏窗口抢前台时立即压制"""
+        tick = 0
+        while self.running:
+            try:
+                self._ensure_hidden()
+                if tick % 10 == 0:
+                    # 慢速任务(约0.5秒一次)：防激活样式 + Z序兜底检查
+                    self._ensure_noactivate()
+                    self._keep_game_background()
+                else:
+                    # 快速焦点监测(0.05秒一次)：游戏抢到前台立即压回并归还焦点
+                    hwnd = self._get_hwnd()
+                    if hwnd:
+                        fg = win32gui.GetForegroundWindow()
+                        if fg == hwnd:
+                            self._push_game_down(hwnd, restore_focus=True)
+                        elif fg:
+                            self._last_foreground = fg
+            except Exception:
+                pass
+            tick += 1
+            time.sleep(0.05)
+        # 脚本停止：恢复游戏窗口位置和样式
+        self._restore_window_state()
 
     def _capture_window(self):
         """后台截图：PrintWindow抓取窗口内容（窗口可被遮挡，不能最小化）"""
@@ -965,6 +1163,11 @@ class GameBot:
         """主循环"""
         # 设置快捷键监听
         self.setup_hotkey()
+
+        # 后台模式：启动压制线程（窗口移出屏幕外隐藏+防激活+焦点监测）
+        if self.background_mode:
+            self._suppress_thread = threading.Thread(target=self._suppress_loop, daemon=True)
+            self._suppress_thread.start()
 
         print("开始自动刷图脚本...")
         print("提示: 按下ESC键可以随时停止脚本")
