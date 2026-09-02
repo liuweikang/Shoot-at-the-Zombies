@@ -111,15 +111,23 @@ class GameBot:
             return
 
         loaded_count = 0
+        skipped_count = 0
         for filename in os.listdir(self.template_dir):
             if filename.lower().endswith((".png", ".jpg", ".jpeg")):
                 template_path = os.path.join(self.template_dir, filename)
                 template = cv2.imread(template_path)
-                if template is not None:
-                    self.template_cache[filename] = template
-                    loaded_count += 1
+                if template is None:
+                    continue
+                # 跳过超大模板（如battling-stop.png是2160x2160全屏大图）：
+                # 它们比任何游戏窗口截图都大，matchTemplate永远用不上，还浪费内存和加载时间
+                h, w = template.shape[:2]
+                if h > 2000 or w > 2000:
+                    skipped_count += 1
+                    continue
+                self.template_cache[filename] = template
+                loaded_count += 1
 
-        print(f"模板预加载完成: {loaded_count} 个模板已加载到内存")
+        print(f"模板预加载完成: {loaded_count} 个模板已加载到内存" + (f"，跳过 {skipped_count} 个超大模板" if skipped_count else ""))
 
     # ==================== 后台模式基础设施 ====================
 
