@@ -14,7 +14,7 @@ import sys
 import argparse
 import atexit
 import json
-from pynput import keyboard
+from pynput import keyboard, mouse
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import threading
@@ -52,6 +52,12 @@ class GameBot:
     ):
         self.running = True
         self.hotkey_listener = None
+        self.mouse_listener = None
+        # 记录用户最近一次点击的位置和时间（用于判断是否在主动操作游戏）
+        self._last_click_pos = None
+        self._last_click_time = 0
+        # 临时查看窗口的截止时间（F1触发后几秒内不隐藏）
+        self._peek_until = 0
         """初始化游戏机器人"""
         self.game_title = game_title
         # 后台模式：截图用PrintWindow、点击用PostMessage，不占用真实鼠标键盘
@@ -204,7 +210,8 @@ class GameBot:
             print(f"后台按下按键: {key}")
 
     def _restore_foreground(self, target_hwnd):
-        """把前台还给指定窗口（AttachThreadInput绕过前台锁定限制）"""
+        """把前台还给指定窗口（AttachThreadInput绕过前台锁定限制）
+        注意：pywin32 312 的 win32api 没有 AttachThreadInput，必须走 ctypes.user32"""
         if not target_hwnd or not win32gui.IsWindow(target_hwnd) or win32gui.IsIconic(target_hwnd):
             return
         try:
@@ -216,15 +223,21 @@ class GameBot:
                     tid, _ = win32process.GetWindowThreadProcessId(hwnd)
                     if tid and tid != cur_thread:
                         threads.add(tid)
+            # 用ctypes调用user32.AttachThreadInput（win32api没有这个函数）
             for tid in threads:
-                win32api.AttachThreadInput(cur_thread, tid, True)
+                ctypes.windll.user32.AttachThreadInput(cur_thread, tid, True)
             try:
                 win32gui.SetForegroundWindow(target_hwnd)
+                win32gui.BringWindowToTop(target_hwnd)
             finally:
                 for tid in threads:
-                    win32api.AttachThreadInput(cur_thread, tid, False)
-        except Exception:
-            pass
+                    ctypes.windll.user32.AttachThreadInput(cur_thread, tid, False)
+        except Exception as e:
+            # 不再静默吞掉：至少打一次日志便于排查
+            now = time.time()
+            if now - getattr(self, "_last_fg_log", 0) >= 5:
+                self._last_fg_log = now
+                print(f"归还焦点失败: {e}")
 
     def _ensure_noactivate(self):
         """给游戏窗口加WS_EX_NOACTIVATE样式，从根源上禁止它激活自己置顶
@@ -276,21 +289,27 @@ class GameBot:
 
     def _push_game_down(self, hwnd, restore_focus):
         """把游戏窗口压回窗口堆叠底部"""
-        # 鼠标悬停在游戏窗口上：可能是用户主动查看游戏，不压制
+        # 只在用户最近3秒内真实点击过游戏窗口时才不压制（用户在主动操作游戏）。
+        # 鼠标只是悬停不算——游戏窗口占屏幕很大，悬停很常见，不能因此跳过压制。
         try:
-            mx, my = win32gui.GetCursorPos()
-            l, t, r, b = win32gui.GetWindowRect(hwnd)
-            if l <= mx <= r and t <= my <= b:
-                return
+            if self._last_click_pos and time.time() - self._last_click_time <= 3:
+                l, t, r, b = win32gui.GetWindowRect(hwnd)
+                cx, cy = self._last_click_pos
+                if l <= cx <= r and t <= cy <= b:
+                    return
         except Exception:
-            return
+            pass
         flags = win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
         try:
             win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, flags)
             win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, flags)
             if restore_focus:
                 self._restore_foreground(self._last_foreground)
-            print("检测到游戏窗口抢前台，已压回后台")
+            # 日志节流：同一消息最多2秒打一次，避免刷屏
+            now = time.time()
+            if now - getattr(self, "_last_push_log", 0) >= 2:
+                self._last_push_log = now
+                print("检测到游戏窗口抢前台，已压回后台")
         except Exception:
             pass
 
@@ -312,29 +331,60 @@ class GameBot:
                 self._push_game_down(hwnd, restore_focus=False)
 
     def _ensure_hidden(self):
-        """把游戏窗口移到屏幕外：即使被微信强行激活也完全不可见
-        （PrintWindow截图和PostMessage点击都不受窗口位置影响）"""
+        """把游戏窗口移到屏幕外隐藏：彻底不打扰用户、不闪烁，
+        而PrintWindow截图和模板识别不受窗口位置影响（已验证屏幕外识别正常）。
+        微信偶尔会恢复/缩放窗口，这里持续强制移回屏幕外并保持正确尺寸。"""
         hwnd = self._get_hwnd()
         if not hwnd:
             return
         try:
-            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-            vx = win32api.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN 虚拟屏幕左边界
-            vy = win32api.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
-            vw = win32api.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
-            vh = win32api.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
-            # 已完全在所有显示器之外（含最小化时的-32000坐标）：无需处理
-            if right <= vx or bottom <= vy or left >= vx + vw or top >= vy + vh:
-                self._hidden_hwnd = hwnd
+            # 用户请求临时查看窗口（按快捷键后几秒内不隐藏）
+            if getattr(self, "_peek_until", 0) and time.time() < self._peek_until:
+                if win32gui.IsIconic(hwnd):
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 return
-            # 记录当前屏幕内位置，停止脚本时移回来
-            self._hidden_orig_pos = (left, top)
-            width = right - left
-            flags = win32con.SWP_NOSIZE | win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
-            # 放到虚拟屏幕左边界再往左50px，保证任何显示器都看不到
-            win32gui.SetWindowPos(hwnd, 0, vx - width - 50, vy, 0, 0, flags)
+
+            # 最小化窗口无法截图，先恢复（恢复后可能回屏幕内，下一轮再藏）
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.3)
+                return
+
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            win_w, win_h = right - left, bottom - top
+
+            # 目标：放在虚拟屏幕左边界之外（屏幕外左侧），保持542x1010客户区尺寸
+            vx = win32api.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+            target_x = vx - 3000
+
+            # 已在屏幕外且尺寸正确：无需操作
+            if right <= vx and left >= target_x - 100:
+                return
+
+            # 窗口被微信恢复/缩放/移到别处：重新藏起来
+            # 记录原始位置（仅第一次，供停止脚本时恢复）
+            if not self._hidden_orig_pos:
+                # 若窗口此刻是最小化(-32000)或屏幕外，先恢复/记录一个合理位置，
+                # 避免停止脚本后窗口回不到屏幕内
+                if left <= -30000 or top <= -30000:
+                    self._hidden_orig_pos = (100, 100)
+                else:
+                    self._hidden_orig_pos = (left, top)
+
+            # 强制正确尺寸（542x1010客户区 = 约558x1048窗口含边框）
+            client_rect = win32gui.GetClientRect(hwnd)
+            border_w = win_w - client_rect[2]
+            border_h = win_h - client_rect[3]
+            target_w = 542 + max(0, border_w)
+            target_h = 1010 + max(0, border_h)
+
+            win32gui.MoveWindow(hwnd, target_x, vy if (vy := win32api.GetSystemMetrics(77)) else 0, target_w, target_h, True)
             self._hidden_hwnd = hwnd
-            print("已将游戏窗口移到屏幕外隐藏（停止脚本后自动移回原位置）")
+            # 日志节流：避免每次检测都打印
+            now = time.time()
+            if now - getattr(self, "_last_hide_log", 0) >= 5:
+                self._last_hide_log = now
+                print("已将游戏窗口移到屏幕外隐藏（停止脚本后自动移回）")
         except Exception as e:
             print(f"隐藏游戏窗口失败: {e}")
 
@@ -343,17 +393,20 @@ class GameBot:
         hwnd = self._hidden_hwnd
         if hwnd and self._hidden_orig_pos and win32gui.IsWindow(hwnd):
             try:
-                flags = (
-                    win32con.SWP_NOSIZE | win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
-                )
-                win32gui.SetWindowPos(
+                # 若窗口当前被移出屏幕，先恢复到屏幕内原位置，并恢复542x1010推荐尺寸
+                cur = win32gui.GetWindowRect(hwnd)
+                client_rect = win32gui.GetClientRect(hwnd)
+                border_w = (cur[2]-cur[0]) - client_rect[2]
+                border_h = (cur[3]-cur[1]) - client_rect[3]
+                target_w = 542 + max(0, border_w)
+                target_h = 1010 + max(0, border_h)
+                win32gui.MoveWindow(
                     hwnd,
-                    0,
                     self._hidden_orig_pos[0],
                     self._hidden_orig_pos[1],
-                    0,
-                    0,
-                    flags,
+                    target_w,
+                    target_h,
+                    True,
                 )
                 print("游戏窗口已移回屏幕")
             except Exception:
@@ -462,9 +515,13 @@ class GameBot:
             return False
 
     def resize_game_window(self, width=542, height=1010):
-        """调整游戏窗口大小"""
+        """调整游戏窗口大小，并确保窗口处于屏幕内可见位置（便于PrintWindow截图）"""
         hwnd = win32gui.FindWindow(None, self.game_title)
         if hwnd:
+            # 最小化窗口无法调整，先恢复
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                time.sleep(0.3)
             # 获取当前窗口位置
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
             # 计算窗口边框和标题栏的大小
@@ -478,6 +535,16 @@ class GameBot:
             # 计算需要设置的窗口总大小
             window_width = width + border_width
             window_height = height + border_height
+            # 若窗口被移出屏幕外，放回屏幕内可见位置（主屏居中偏右上）
+            vx = win32api.GetSystemMetrics(76)
+            vy = win32api.GetSystemMetrics(77)
+            vw = win32api.GetSystemMetrics(78)
+            vh = win32api.GetSystemMetrics(79)
+            if right <= vx or bottom <= vy or left >= vx + vw or top >= vy + vh:
+                left = vx + vw - window_width - 40
+                top = vy + 40
+                if left < vx:
+                    left = vx
             # 设置新的窗口大小
             win32gui.MoveWindow(hwnd, left, top, window_width, window_height, True)
             # 更新游戏窗口信息
@@ -566,6 +633,13 @@ class GameBot:
         if img is None:
             return None
 
+        t_h, t_w = template.shape[:2]
+        i_h, i_w = img.shape[:2]
+        # 模板比截图还大：OpenCV matchTemplate要求模板<=截图，否则断言崩溃。
+        # 这种情况说明窗口太小或模板异常（如battling-stop.png是2160x2160大图），直接跳过。
+        if t_h > i_h or t_w > i_w:
+            return None
+
         result = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
@@ -593,6 +667,12 @@ class GameBot:
 
         img = self.take_screenshot()
         if img is None:
+            return []
+
+        t_h, t_w = template.shape[:2]
+        i_h, i_w = img.shape[:2]
+        # 模板比截图还大：OpenCV matchTemplate要求模板<=截图，否则断言崩溃，直接跳过
+        if t_h > i_h or t_w > i_w:
             return []
 
         result = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
@@ -757,13 +837,12 @@ class GameBot:
                         # 不打深渊
                         if self.find_double_abyss():
                             self.find_click_dont_battle_return()
-                        # print("未找到环球按钮")
-                        # time.sleep(0.1)  # 减少等待时间
-                except:
-                    print("查找环球按钮时出错")
-                    # time.sleep(0.1)  # 减少等待时间
-                else:
-                    print("未找到招募页面")
+                except Exception:
+                    # 兜底：单次异常不影响主循环，节流打印
+                    now = time.time()
+                    if now - getattr(self, "_last_recruit_log", 0) >= 5:
+                        self._last_recruit_log = now
+                        print("查找环球按钮时出错")
 
     def find_in_huanqiu_team(self):
         """是否在环球队伍"""
@@ -1148,16 +1227,47 @@ class GameBot:
                 self.running = False
                 if self.hotkey_listener:
                     self.hotkey_listener.stop()
+                if self.mouse_listener:
+                    self.mouse_listener.stop()
                 return False
+            if key == keyboard.Key.f8:
+                # F8: 临时显示游戏窗口8秒（供查看情况），8秒后自动藏回屏幕外
+                print("F8: 临时显示游戏窗口8秒，之后自动藏回")
+                self._peek_until = time.time() + 8
+                hwnd = self._get_hwnd()
+                if hwnd:
+                    if win32gui.IsIconic(hwnd):
+                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    # 直接移到屏幕内固定可见位置(右上角附近)，不依赖可能失效的隐藏前位置
+                    vx = win32api.GetSystemMetrics(76)
+                    vy = win32api.GetSystemMetrics(77)
+                    vw = win32api.GetSystemMetrics(78)
+                    cur = win32gui.GetWindowRect(hwnd)
+                    w = cur[2] - cur[0]
+                    h = cur[3] - cur[1]
+                    new_x = vx + vw - w - 30
+                    new_y = vy + 30
+                    if new_x < vx:
+                        new_x = vx
+                    win32gui.MoveWindow(hwnd, new_x, new_y, w, h, True)
         except AttributeError:
             pass
         return True
 
     def setup_hotkey(self):
         """设置快捷键监听"""
-        print("已设置快捷键: ESC键 - 停止脚本")
+        print("已设置快捷键: ESC键 - 停止脚本, F8键 - 临时显示游戏窗口5秒")
         self.hotkey_listener = keyboard.Listener(on_release=self.on_hotkey)
         self.hotkey_listener.start()
+
+        # 鼠标监听：记录用户真实点击位置，用于判断是否在主动操作游戏
+        # （避免"鼠标只是悬停在游戏窗口上"就错误地不压制）
+        def on_click(x, y, button, pressed):
+            if pressed:
+                self._last_click_pos = (x, y)
+                self._last_click_time = time.time()
+        self.mouse_listener = mouse.Listener(on_click=on_click)
+        self.mouse_listener.start()
 
     def main_loop(self):
         """主循环"""
@@ -1231,7 +1341,14 @@ class GameBot:
                     #     self.click(*stop_button)
                     self.force_click_stop()
                     self.find_click_exit()
-                print("战斗时间:", time.time() - self.current_battle_time)
+                # 战斗时间日志节流：最多10秒打印一次，避免刷屏
+                now = time.time()
+                if now - getattr(self, "_last_battle_time_log", 0) >= 10:
+                    self._last_battle_time_log = now
+                    print(
+                        "战斗时间:",
+                        round(time.time() - self.current_battle_time, 1),
+                    )
 
             # 是否刷环球
             if self.mode == 0:
@@ -1367,15 +1484,23 @@ class GameBot:
 
 
 class OutputRedirector:
-    """将print输出重定向到Tkinter文本控件"""
+    """将print输出重定向到Tkinter文本控件，同时写入日志文件便于外部监控"""
 
-    def __init__(self, text_widget, max_lines=100):
+    def __init__(self, text_widget, max_lines=100, log_file=None):
         self.text_widget = text_widget
         self.max_lines = max_lines
         self._queue = []
         self._lock = threading.Lock()
+        self._log_file = log_file
 
     def write(self, text):
+        # 写入日志文件（便于外部进程监控运行状态）
+        if self._log_file:
+            try:
+                with open(self._log_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%H:%M:%S')}] {text}")
+            except Exception:
+                pass
         if self.text_widget and self.text_widget.winfo_exists():
             with self._lock:
                 self._queue.append(text)
@@ -1687,8 +1812,10 @@ class GameBotGUI:
         self.root.after(0, lambda: self.battle_count_var.set(f"战斗次数: {count}"))
 
     def _redirect_output(self):
-        """重定向print输出到控制台文本框"""
-        self._stdout_redirector = OutputRedirector(self.console_text, max_lines=100)
+        """重定向print输出到控制台文本框，并写入bot.log"""
+        self._stdout_redirector = OutputRedirector(
+            self.console_text, max_lines=100, log_file="bot.log"
+        )
         sys.stdout = self._stdout_redirector
 
     def on_mode_changed(self, event):
