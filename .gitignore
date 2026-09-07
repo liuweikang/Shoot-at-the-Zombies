@@ -136,3 +136,4 @@ keys/
 templates_decrypted/
 generate_keys.py
 config.json
+启动机器人.bat
