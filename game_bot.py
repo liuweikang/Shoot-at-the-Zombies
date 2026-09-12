@@ -1091,6 +1091,7 @@ class GameBot:
     def click_expedition_fast_join(self):
         """点击远征快速加入按钮"""
         self.find_click_expedition_team_hall()
+        time.sleep(1)
         self.find_click_expedition_fast_join()
         time.sleep(1)
         self.expedition_in_team_max_time = (
